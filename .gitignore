@@ -1,0 +1,5 @@
+data/trene/*
+data/annotations/*
+
+!data/trene/.gitkeep
+!data/annotations/.gitkeep
