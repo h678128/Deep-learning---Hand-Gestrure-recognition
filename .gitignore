@@ -1,5 +1,8 @@
 data/trene/*
 data/annotations/*
+outputs/*
+__pycache__/
+*.pyc
 
 !data/trene/.gitkeep
 !data/annotations/.gitkeep
