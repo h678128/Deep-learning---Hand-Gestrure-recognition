@@ -3,6 +3,8 @@ data/annotations/*
 outputs/*
 __pycache__/
 *.pyc
+modell/*.pt
+modell/*.json
 
 !data/trene/.gitkeep
 !data/annotations/.gitkeep
