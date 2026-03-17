@@ -16,7 +16,6 @@ TRAINING_RGB_PATH = DATA_ROOT / "training" / "rgb"
 TRAINING_XYZ_PATH = DATA_ROOT / "training_xyz.json"
 TRAINING_K_PATH = DATA_ROOT / "training_K.json"
 
-# Same landmark ordering as common hand-pose datasets and MediaPipe-style demos.
 HAND_CONNECTIONS = [
     (0, 1),
     (1, 2),
@@ -57,10 +56,7 @@ def _load_json_array(path: Path) -> np.ndarray:
         return np.asarray(json.load(file), dtype=np.float32)
 
 
-def infer_images_per_annotation(
-    image_count: int,
-    annotation_count: int,
-) -> int:
+def infer_images_per_annotation(image_count: int, annotation_count: int) -> int:
     if annotation_count == 0:
         raise ValueError("No landmark annotations found.")
 
