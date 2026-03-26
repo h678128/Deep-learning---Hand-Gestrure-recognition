@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import torch
 
-from dataset import FreiHandLandmarkDataset, HAND_CONNECTIONS
+from dataset import FreiHandLandmarkDataset
 from model import create_landmark_model
 
 
@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path("modell") / "landmark_cnn_best.pt",
+        default=Path("modell") / "landmark_cnn_crop6_best.pt",
     )
     parser.add_argument("--index", type=int, default=0)
     parser.add_argument("--image-size", type=int, default=224)
@@ -33,18 +33,19 @@ def parse_args() -> argparse.Namespace:
 def draw_custom_landmarks(
     image: np.ndarray,
     landmarks_xy: np.ndarray,
+    connections: list[tuple[int, int]],
     line_color: tuple[int, int, int],
     point_color: tuple[int, int, int],
 ) -> np.ndarray:
     canvas = image.copy()
-    for start_idx, end_idx in HAND_CONNECTIONS:
+    for start_idx, end_idx in connections:
         start_point = tuple(np.round(landmarks_xy[start_idx]).astype(int))
         end_point = tuple(np.round(landmarks_xy[end_idx]).astype(int))
         cv2.line(canvas, start_point, end_point, line_color, 2)
 
     for point in landmarks_xy:
         point_xy = tuple(np.round(point).astype(int))
-        cv2.circle(canvas, point_xy, 3, point_color, -1)
+        cv2.circle(canvas, point_xy, 4, point_color, -1)
 
     return canvas
 
@@ -53,15 +54,18 @@ def main() -> None:
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    checkpoint = torch.load(args.checkpoint, map_location=device)
     dataset = FreiHandLandmarkDataset(
         image_size=args.image_size,
         normalize=True,
         return_tensors=True,
+        crop_hand=checkpoint.get("crop_hand", True),
+        crop_padding=checkpoint.get("crop_padding", 0.25),
+        selected_landmark_indices=checkpoint.get("selected_landmark_indices"),
     )
     sample = dataset[args.index]
 
-    checkpoint = torch.load(args.checkpoint, map_location=device)
-    model = create_landmark_model().to(device)
+    model = create_landmark_model(num_landmarks=checkpoint["num_landmarks"]).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
@@ -70,17 +74,21 @@ def main() -> None:
         prediction = model(image_tensor)[0].cpu().numpy() * float(args.image_size)
 
     target = sample["landmarks_2d"].cpu().numpy()
-    image_rgb = (sample["image"].permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+    image_rgb = (
+        sample["image"].permute(1, 2, 0).cpu().numpy() * 255.0
+    ).clip(0, 255).astype(np.uint8)
 
     target_preview = draw_custom_landmarks(
         image_rgb,
         target,
+        connections=dataset.selected_connections,
         line_color=(0, 220, 120),
         point_color=(255, 90, 90),
     )
     prediction_preview = draw_custom_landmarks(
         image_rgb,
         prediction,
+        connections=dataset.selected_connections,
         line_color=(255, 200, 0),
         point_color=(50, 120, 255),
     )

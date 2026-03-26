@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import cv2
 import numpy as np
@@ -16,7 +16,7 @@ TRAINING_RGB_PATH = DATA_ROOT / "training" / "rgb"
 TRAINING_XYZ_PATH = DATA_ROOT / "training_xyz.json"
 TRAINING_K_PATH = DATA_ROOT / "training_K.json"
 
-HAND_CONNECTIONS = [
+FULL_HAND_CONNECTIONS = [
     (0, 1),
     (1, 2),
     (2, 3),
@@ -38,6 +38,14 @@ HAND_CONNECTIONS = [
     (18, 19),
     (19, 20),
 ]
+DEFAULT_LANDMARK_INDICES = (0, 4, 8, 12, 16, 20)
+DEFAULT_CONNECTIONS = [
+    (0, 1),
+    (0, 2),
+    (0, 3),
+    (0, 4),
+    (0, 5),
+]
 
 
 @dataclass
@@ -49,6 +57,7 @@ class FreiHandSample:
     image_path: Path
     image_index: int
     annotation_index: int
+    crop_box: tuple[int, int, int, int]
 
 
 def _load_json_array(path: Path) -> np.ndarray:
@@ -88,14 +97,22 @@ def resize_landmarks(
     return scaled
 
 
+def infer_connections(num_landmarks: int) -> list[tuple[int, int]]:
+    if num_landmarks == len(DEFAULT_LANDMARK_INDICES):
+        return DEFAULT_CONNECTIONS
+    return FULL_HAND_CONNECTIONS
+
+
 def draw_landmarks(
     image: np.ndarray,
     landmarks_xy: np.ndarray,
+    connections: Optional[Sequence[tuple[int, int]]] = None,
     point_radius: int = 3,
 ) -> np.ndarray:
     canvas = image.copy()
+    active_connections = list(connections) if connections is not None else infer_connections(len(landmarks_xy))
 
-    for start_idx, end_idx in HAND_CONNECTIONS:
+    for start_idx, end_idx in active_connections:
         start_point = tuple(np.round(landmarks_xy[start_idx]).astype(int))
         end_point = tuple(np.round(landmarks_xy[end_idx]).astype(int))
         cv2.line(canvas, start_point, end_point, (0, 220, 120), 2)
@@ -107,16 +124,69 @@ def draw_landmarks(
     return canvas
 
 
+def compute_hand_crop_box(
+    landmarks_xy: np.ndarray,
+    image_hw: tuple[int, int],
+    padding_ratio: float,
+) -> tuple[int, int, int, int]:
+    image_h, image_w = image_hw
+    min_xy = landmarks_xy.min(axis=0)
+    max_xy = landmarks_xy.max(axis=0)
+
+    center_x = float((min_xy[0] + max_xy[0]) / 2.0)
+    center_y = float((min_xy[1] + max_xy[1]) / 2.0)
+    box_size = float(max(max_xy[0] - min_xy[0], max_xy[1] - min_xy[1]))
+    half_size = max(16.0, box_size * (0.5 + padding_ratio))
+
+    x1 = int(np.floor(center_x - half_size))
+    y1 = int(np.floor(center_y - half_size))
+    x2 = int(np.ceil(center_x + half_size))
+    y2 = int(np.ceil(center_y + half_size))
+
+    x1 = max(0, x1)
+    y1 = max(0, y1)
+    x2 = min(image_w, x2)
+    y2 = min(image_h, y2)
+
+    if x2 <= x1:
+        x2 = min(image_w, x1 + 1)
+    if y2 <= y1:
+        y2 = min(image_h, y1 + 1)
+
+    return x1, y1, x2, y2
+
+
+def crop_image_and_landmarks(
+    image_rgb: np.ndarray,
+    landmarks_xy: np.ndarray,
+    crop_box: tuple[int, int, int, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    x1, y1, x2, y2 = crop_box
+    cropped_image = image_rgb[y1:y2, x1:x2]
+    cropped_landmarks = landmarks_xy.copy()
+    cropped_landmarks[:, 0] -= x1
+    cropped_landmarks[:, 1] -= y1
+    return cropped_image, cropped_landmarks
+
+
 class FreiHandLandmarkDataset(Dataset):
     def __init__(
         self,
         image_size: Optional[int] = 224,
         normalize: bool = True,
         return_tensors: bool = True,
+        crop_hand: bool = True,
+        crop_padding: float = 0.25,
+        selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
     ) -> None:
         self.image_size = image_size
         self.normalize = normalize
         self.return_tensors = return_tensors
+        self.crop_hand = crop_hand
+        self.crop_padding = crop_padding
+        self.selected_landmark_indices = tuple(selected_landmark_indices)
+        self.selected_connections = infer_connections(len(self.selected_landmark_indices))
+        self.num_landmarks = len(self.selected_landmark_indices)
 
         self.image_paths = sorted(TRAINING_RGB_PATH.glob("*.jpg"))
         self.landmarks_3d_all = _load_json_array(TRAINING_XYZ_PATH)
@@ -149,12 +219,25 @@ class FreiHandLandmarkDataset(Dataset):
 
         landmarks_3d = self.landmarks_3d_all[annotation_index].copy()
         camera_matrix = self.camera_matrices[annotation_index].copy()
-        landmarks_2d = project_points(landmarks_3d, camera_matrix)
+        full_landmarks_2d = project_points(landmarks_3d, camera_matrix)
+        selected_landmarks_2d = full_landmarks_2d[list(self.selected_landmark_indices)].copy()
+        selected_landmarks_3d = landmarks_3d[list(self.selected_landmark_indices)].copy()
+
+        crop_box = (0, 0, original_hw[1], original_hw[0])
+        if self.crop_hand:
+            # Crop on all landmarks so the full hand stays inside the training image.
+            crop_box = compute_hand_crop_box(full_landmarks_2d, original_hw, self.crop_padding)
+            image_rgb, selected_landmarks_2d = crop_image_and_landmarks(
+                image_rgb,
+                selected_landmarks_2d,
+                crop_box,
+            )
+            original_hw = image_rgb.shape[:2]
 
         if self.image_size is not None:
             target_hw = (self.image_size, self.image_size)
             image_rgb = cv2.resize(image_rgb, (self.image_size, self.image_size))
-            landmarks_2d = resize_landmarks(landmarks_2d, original_hw, target_hw)
+            selected_landmarks_2d = resize_landmarks(selected_landmarks_2d, original_hw, target_hw)
 
         image = image_rgb.astype(np.float32)
         if self.normalize:
@@ -162,12 +245,13 @@ class FreiHandLandmarkDataset(Dataset):
 
         return FreiHandSample(
             image=image,
-            landmarks_2d=landmarks_2d.astype(np.float32),
-            landmarks_3d=landmarks_3d.astype(np.float32),
+            landmarks_2d=selected_landmarks_2d.astype(np.float32),
+            landmarks_3d=selected_landmarks_3d.astype(np.float32),
             camera_matrix=camera_matrix.astype(np.float32),
             image_path=image_path,
             image_index=image_index,
             annotation_index=annotation_index,
+            crop_box=crop_box,
         )
 
     def __getitem__(self, image_index: int) -> dict[str, object]:
@@ -182,6 +266,7 @@ class FreiHandLandmarkDataset(Dataset):
                 "image_path": str(sample.image_path),
                 "image_index": sample.image_index,
                 "annotation_index": sample.annotation_index,
+                "crop_box": sample.crop_box,
             }
 
         image_tensor = torch.from_numpy(sample.image).permute(2, 0, 1).float()
@@ -197,13 +282,18 @@ class FreiHandLandmarkDataset(Dataset):
             "image_path": str(sample.image_path),
             "image_index": sample.image_index,
             "annotation_index": sample.annotation_index,
+            "crop_box": sample.crop_box,
         }
 
-    def summary(self) -> dict[str, int]:
+    def summary(self) -> dict[str, object]:
         return {
             "image_count": len(self.image_paths),
             "annotation_count": len(self.landmarks_3d_all),
             "images_per_annotation": self.images_per_annotation,
+            "num_landmarks": self.num_landmarks,
+            "crop_hand": self.crop_hand,
+            "crop_padding": self.crop_padding,
+            "selected_landmark_indices": list(self.selected_landmark_indices),
         }
 
 
@@ -211,9 +301,15 @@ def load_landmark_dataset(
     image_size: Optional[int] = 224,
     normalize: bool = True,
     return_tensors: bool = True,
+    crop_hand: bool = True,
+    crop_padding: float = 0.25,
+    selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
 ) -> FreiHandLandmarkDataset:
     return FreiHandLandmarkDataset(
         image_size=image_size,
         normalize=normalize,
         return_tensors=return_tensors,
+        crop_hand=crop_hand,
+        crop_padding=crop_padding,
+        selected_landmark_indices=selected_landmark_indices,
     )

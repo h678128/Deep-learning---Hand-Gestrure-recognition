@@ -10,13 +10,13 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from dataset import FreiHandLandmarkDataset
+from dataset import DEFAULT_LANDMARK_INDICES, FreiHandLandmarkDataset
 from model import create_landmark_model
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Train en enkel CNN for 2D hand-landmarks."
+        description="Train en sterkere CNN for 2D hand-landmarks."
     )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=64)
@@ -26,6 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--crop-padding", type=float, default=0.25)
     parser.add_argument(
         "--max-samples",
         type=int,
@@ -35,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path("modell") / "landmark_cnn_best.pt",
+        default=Path("modell") / "landmark_cnn_crop6_best.pt",
     )
     return parser.parse_args()
 
@@ -162,15 +163,21 @@ def save_checkpoint(
     checkpoint_path: Path,
     model: nn.Module,
     args: argparse.Namespace,
+    dataset: FreiHandLandmarkDataset,
     best_val_loss: float,
+    best_epoch: int,
 ) -> None:
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             "model_state_dict": model.state_dict(),
             "image_size": args.image_size,
-            "num_landmarks": 21,
+            "num_landmarks": dataset.num_landmarks,
+            "selected_landmark_indices": list(dataset.selected_landmark_indices),
+            "crop_padding": dataset.crop_padding,
+            "crop_hand": dataset.crop_hand,
             "best_val_loss": best_val_loss,
+            "best_epoch": best_epoch,
         },
         checkpoint_path,
     )
@@ -183,7 +190,10 @@ def save_checkpoint(
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
+        "crop_padding": args.crop_padding,
+        "selected_landmark_indices": list(dataset.selected_landmark_indices),
         "best_val_loss": best_val_loss,
+        "best_epoch": best_epoch,
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
@@ -197,6 +207,9 @@ def main() -> None:
         image_size=args.image_size,
         normalize=True,
         return_tensors=True,
+        crop_hand=True,
+        crop_padding=args.crop_padding,
+        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
     )
     train_loader, val_loader = create_dataloaders(
         dataset=dataset,
@@ -207,7 +220,7 @@ def main() -> None:
         max_samples=args.max_samples,
     )
 
-    model = create_landmark_model().to(device)
+    model = create_landmark_model(num_landmarks=dataset.num_landmarks).to(device)
     criterion = nn.SmoothL1Loss()
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -216,6 +229,7 @@ def main() -> None:
     )
 
     best_val_loss = float("inf")
+    best_epoch = 0
 
     print("Device:", device)
     print("Dataset summary:", dataset.summary())
@@ -248,7 +262,8 @@ def main() -> None:
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            save_checkpoint(args.checkpoint, model, args, best_val_loss)
+            best_epoch = epoch
+            save_checkpoint(args.checkpoint, model, args, dataset, best_val_loss, best_epoch)
             print(f"Saved best checkpoint to {args.checkpoint}")
 
 
