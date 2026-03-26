@@ -10,23 +10,24 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from dataset import DEFAULT_LANDMARK_INDICES, FreiHandLandmarkDataset
-from model import create_landmark_model
+from dataset import DEFAULT_LANDMARK_INDICES, FreiHandLandmarkDataset, decode_heatmaps
+from model import create_heatmap_model
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Train en sterkere CNN for 2D hand-landmarks."
+        description="Train en heatmap-modell for 6 hand-keypoints."
     )
     parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--image-size", type=int, default=224)
+    parser.add_argument("--heatmap-size", type=int, default=56)
+    parser.add_argument("--heatmap-sigma", type=float, default=2.0)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--val-ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument("--crop-padding", type=float, default=0.25)
     parser.add_argument(
         "--max-samples",
         type=int,
@@ -36,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path("modell") / "landmark_cnn_crop6_best.pt",
+        default=Path("modell") / "landmark_heatmap6_best.pt",
     )
     return parser.parse_args()
 
@@ -111,14 +112,13 @@ def create_dataloaders(
     return train_loader, val_loader
 
 
-def landmarks_to_unit_space(landmarks_2d: torch.Tensor, image_size: int) -> torch.Tensor:
-    return landmarks_2d / float(image_size)
-
-
-def mean_pixel_error(predictions: torch.Tensor, targets: torch.Tensor, image_size: int) -> float:
-    pred_pixels = predictions * float(image_size)
-    target_pixels = targets * float(image_size)
-    distances = torch.linalg.norm(pred_pixels - target_pixels, dim=-1)
+def mean_pixel_error(
+    predicted_heatmaps: torch.Tensor,
+    target_landmarks: torch.Tensor,
+    image_size: int,
+) -> float:
+    predicted_landmarks = decode_heatmaps(predicted_heatmaps, image_size=image_size)
+    distances = torch.linalg.norm(predicted_landmarks - target_landmarks, dim=-1)
     return distances.mean().item()
 
 
@@ -142,10 +142,11 @@ def run_epoch(
     with context_manager():
         for batch in dataloader:
             images = batch["image"].to(device)
-            targets = landmarks_to_unit_space(batch["landmarks_2d"].to(device), image_size)
+            target_heatmaps = batch["heatmaps"].to(device)
+            target_landmarks = batch["landmarks_2d"].to(device)
 
-            predictions = model(images)
-            loss = criterion(predictions, targets)
+            predicted_heatmaps = model(images)
+            loss = criterion(predicted_heatmaps, target_heatmaps)
 
             if is_training:
                 optimizer.zero_grad()
@@ -153,7 +154,11 @@ def run_epoch(
                 optimizer.step()
 
             total_loss += loss.item()
-            total_error += mean_pixel_error(predictions.detach(), targets.detach(), image_size)
+            total_error += mean_pixel_error(
+                predicted_heatmaps.detach(),
+                target_landmarks.detach(),
+                image_size=image_size,
+            )
             total_batches += 1
 
     return total_loss / total_batches, total_error / total_batches
@@ -172,10 +177,12 @@ def save_checkpoint(
         {
             "model_state_dict": model.state_dict(),
             "image_size": args.image_size,
+            "heatmap_size": args.heatmap_size,
+            "heatmap_sigma": args.heatmap_sigma,
             "num_landmarks": dataset.num_landmarks,
             "selected_landmark_indices": list(dataset.selected_landmark_indices),
-            "crop_padding": dataset.crop_padding,
             "crop_hand": dataset.crop_hand,
+            "crop_padding": dataset.crop_padding,
             "best_val_loss": best_val_loss,
             "best_epoch": best_epoch,
         },
@@ -186,12 +193,14 @@ def save_checkpoint(
     metadata = {
         "checkpoint": str(checkpoint_path),
         "image_size": args.image_size,
+        "heatmap_size": args.heatmap_size,
+        "heatmap_sigma": args.heatmap_sigma,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
-        "crop_padding": args.crop_padding,
         "selected_landmark_indices": list(dataset.selected_landmark_indices),
+        "crop_hand": dataset.crop_hand,
         "best_val_loss": best_val_loss,
         "best_epoch": best_epoch,
     }
@@ -205,10 +214,11 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataset = FreiHandLandmarkDataset(
         image_size=args.image_size,
+        heatmap_size=args.heatmap_size,
+        heatmap_sigma=args.heatmap_sigma,
         normalize=True,
         return_tensors=True,
-        crop_hand=True,
-        crop_padding=args.crop_padding,
+        crop_hand=False,
         selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
     )
     train_loader, val_loader = create_dataloaders(
@@ -220,8 +230,8 @@ def main() -> None:
         max_samples=args.max_samples,
     )
 
-    model = create_landmark_model(num_landmarks=dataset.num_landmarks).to(device)
-    criterion = nn.SmoothL1Loss()
+    model = create_heatmap_model(num_landmarks=dataset.num_landmarks).to(device)
+    criterion = nn.MSELoss()
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=args.learning_rate,

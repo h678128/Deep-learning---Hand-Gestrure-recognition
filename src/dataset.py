@@ -169,17 +169,62 @@ def crop_image_and_landmarks(
     return cropped_image, cropped_landmarks
 
 
+def generate_heatmaps(
+    landmarks_xy: np.ndarray,
+    image_size: int,
+    heatmap_size: int,
+    sigma: float,
+) -> np.ndarray:
+    heatmaps = np.zeros((len(landmarks_xy), heatmap_size, heatmap_size), dtype=np.float32)
+    scale = float(heatmap_size) / float(image_size)
+
+    xs = np.arange(heatmap_size, dtype=np.float32)
+    ys = np.arange(heatmap_size, dtype=np.float32)
+    grid_x, grid_y = np.meshgrid(xs, ys)
+
+    for index, point in enumerate(landmarks_xy):
+        center_x = point[0] * scale
+        center_y = point[1] * scale
+        squared_distance = (grid_x - center_x) ** 2 + (grid_y - center_y) ** 2
+        heatmaps[index] = np.exp(-squared_distance / (2.0 * sigma**2))
+
+    return heatmaps
+
+
+def decode_heatmaps(heatmaps: torch.Tensor, image_size: int) -> torch.Tensor:
+    if heatmaps.ndim != 4:
+        raise ValueError("Expected heatmaps with shape [batch, keypoints, height, width].")
+
+    batch_size, num_keypoints, height, width = heatmaps.shape
+    flat_heatmaps = heatmaps.view(batch_size, num_keypoints, -1)
+    flat_indices = flat_heatmaps.argmax(dim=-1)
+
+    y_indices = torch.div(flat_indices, width, rounding_mode="floor")
+    x_indices = flat_indices % width
+
+    scale_x = float(image_size) / float(width)
+    scale_y = float(image_size) / float(height)
+
+    x_coords = (x_indices.float() + 0.5) * scale_x
+    y_coords = (y_indices.float() + 0.5) * scale_y
+    return torch.stack([x_coords, y_coords], dim=-1)
+
+
 class FreiHandLandmarkDataset(Dataset):
     def __init__(
         self,
-        image_size: Optional[int] = 224,
+        image_size: int = 224,
+        heatmap_size: int = 56,
+        heatmap_sigma: float = 2.0,
         normalize: bool = True,
         return_tensors: bool = True,
-        crop_hand: bool = True,
+        crop_hand: bool = False,
         crop_padding: float = 0.25,
         selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
     ) -> None:
         self.image_size = image_size
+        self.heatmap_size = heatmap_size
+        self.heatmap_sigma = heatmap_sigma
         self.normalize = normalize
         self.return_tensors = return_tensors
         self.crop_hand = crop_hand
@@ -225,7 +270,6 @@ class FreiHandLandmarkDataset(Dataset):
 
         crop_box = (0, 0, original_hw[1], original_hw[0])
         if self.crop_hand:
-            # Crop on all landmarks so the full hand stays inside the training image.
             crop_box = compute_hand_crop_box(full_landmarks_2d, original_hw, self.crop_padding)
             image_rgb, selected_landmarks_2d = crop_image_and_landmarks(
                 image_rgb,
@@ -234,10 +278,9 @@ class FreiHandLandmarkDataset(Dataset):
             )
             original_hw = image_rgb.shape[:2]
 
-        if self.image_size is not None:
-            target_hw = (self.image_size, self.image_size)
-            image_rgb = cv2.resize(image_rgb, (self.image_size, self.image_size))
-            selected_landmarks_2d = resize_landmarks(selected_landmarks_2d, original_hw, target_hw)
+        target_hw = (self.image_size, self.image_size)
+        image_rgb = cv2.resize(image_rgb, (self.image_size, self.image_size))
+        selected_landmarks_2d = resize_landmarks(selected_landmarks_2d, original_hw, target_hw)
 
         image = image_rgb.astype(np.float32)
         if self.normalize:
@@ -256,6 +299,12 @@ class FreiHandLandmarkDataset(Dataset):
 
     def __getitem__(self, image_index: int) -> dict[str, object]:
         sample = self.get_sample(image_index)
+        heatmaps = generate_heatmaps(
+            landmarks_xy=sample.landmarks_2d,
+            image_size=self.image_size,
+            heatmap_size=self.heatmap_size,
+            sigma=self.heatmap_sigma,
+        )
 
         if not self.return_tensors:
             return {
@@ -263,6 +312,7 @@ class FreiHandLandmarkDataset(Dataset):
                 "landmarks_2d": sample.landmarks_2d,
                 "landmarks_3d": sample.landmarks_3d,
                 "camera_matrix": sample.camera_matrix,
+                "heatmaps": heatmaps,
                 "image_path": str(sample.image_path),
                 "image_index": sample.image_index,
                 "annotation_index": sample.annotation_index,
@@ -273,12 +323,14 @@ class FreiHandLandmarkDataset(Dataset):
         landmarks_tensor = torch.from_numpy(sample.landmarks_2d).float()
         landmarks_3d_tensor = torch.from_numpy(sample.landmarks_3d).float()
         camera_matrix_tensor = torch.from_numpy(sample.camera_matrix).float()
+        heatmap_tensor = torch.from_numpy(heatmaps).float()
 
         return {
             "image": image_tensor,
             "landmarks_2d": landmarks_tensor,
             "landmarks_3d": landmarks_3d_tensor,
             "camera_matrix": camera_matrix_tensor,
+            "heatmaps": heatmap_tensor,
             "image_path": str(sample.image_path),
             "image_index": sample.image_index,
             "annotation_index": sample.annotation_index,
@@ -291,6 +343,9 @@ class FreiHandLandmarkDataset(Dataset):
             "annotation_count": len(self.landmarks_3d_all),
             "images_per_annotation": self.images_per_annotation,
             "num_landmarks": self.num_landmarks,
+            "image_size": self.image_size,
+            "heatmap_size": self.heatmap_size,
+            "heatmap_sigma": self.heatmap_sigma,
             "crop_hand": self.crop_hand,
             "crop_padding": self.crop_padding,
             "selected_landmark_indices": list(self.selected_landmark_indices),
@@ -298,15 +353,19 @@ class FreiHandLandmarkDataset(Dataset):
 
 
 def load_landmark_dataset(
-    image_size: Optional[int] = 224,
+    image_size: int = 224,
+    heatmap_size: int = 56,
+    heatmap_sigma: float = 2.0,
     normalize: bool = True,
     return_tensors: bool = True,
-    crop_hand: bool = True,
+    crop_hand: bool = False,
     crop_padding: float = 0.25,
     selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
 ) -> FreiHandLandmarkDataset:
     return FreiHandLandmarkDataset(
         image_size=image_size,
+        heatmap_size=heatmap_size,
+        heatmap_sigma=heatmap_sigma,
         normalize=normalize,
         return_tensors=return_tensors,
         crop_hand=crop_hand,

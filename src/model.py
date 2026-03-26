@@ -14,58 +14,43 @@ class ConvBlock(nn.Module):
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.block(x)
 
 
-class HandLandmarkCNN(nn.Module):
-    def __init__(
-        self,
-        num_landmarks: int = 6,
-        output_dims: int = 2,
-        dropout: float = 0.3,
-    ) -> None:
+class HandHeatmapCNN(nn.Module):
+    def __init__(self, num_landmarks: int = 6) -> None:
         super().__init__()
         self.num_landmarks = num_landmarks
-        self.output_dims = output_dims
 
-        self.features = nn.Sequential(
-            ConvBlock(3, 32),
-            ConvBlock(32, 64),
-            ConvBlock(64, 128),
-            ConvBlock(128, 256),
-            ConvBlock(256, 512),
-            nn.AdaptiveAvgPool2d((1, 1)),
-        )
+        self.encoder1 = ConvBlock(3, 32)
+        self.encoder2 = ConvBlock(32, 64)
+        self.encoder3 = ConvBlock(64, 128)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.regressor = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(512, 512),
+        self.bottleneck = ConvBlock(128, 256)
+
+        self.up1 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.decoder1 = ConvBlock(256, 128)
+        self.output_head = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Dropout(p=dropout),
-            nn.Linear(512, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=dropout),
-            nn.Linear(256, num_landmarks * output_dims),
+            nn.Conv2d(64, num_landmarks, kernel_size=1),
             nn.Sigmoid(),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features = self.features(x)
-        coordinates = self.regressor(features)
-        return coordinates.view(-1, self.num_landmarks, self.output_dims)
+        enc1 = self.encoder1(x)
+        enc2 = self.encoder2(self.pool(enc1))
+        enc3 = self.encoder3(self.pool(enc2))
+        bottleneck = self.bottleneck(self.pool(enc3))
+
+        dec1 = self.up1(bottleneck)
+        dec1 = self.decoder1(torch.cat([dec1, enc3], dim=1))
+        return self.output_head(dec1)
 
 
-def create_landmark_model(
-    num_landmarks: int = 6,
-    output_dims: int = 2,
-    dropout: float = 0.3,
-) -> HandLandmarkCNN:
-    return HandLandmarkCNN(
-        num_landmarks=num_landmarks,
-        output_dims=output_dims,
-        dropout=dropout,
-    )
+def create_heatmap_model(num_landmarks: int = 6) -> HandHeatmapCNN:
+    return HandHeatmapCNN(num_landmarks=num_landmarks)

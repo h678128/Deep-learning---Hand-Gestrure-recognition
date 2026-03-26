@@ -7,8 +7,8 @@ import cv2
 import numpy as np
 import torch
 
-from dataset import FreiHandLandmarkDataset
-from model import create_landmark_model
+from dataset import FreiHandLandmarkDataset, decode_heatmaps
+from model import create_heatmap_model
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,15 +18,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path("modell") / "landmark_cnn_crop6_best.pt",
+        default=Path("modell") / "landmark_heatmap6_best.pt",
     )
     parser.add_argument("--index", type=int, default=0)
-    parser.add_argument("--image-size", type=int, default=224)
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("outputs") / "prediction_preview.jpg",
-    )
+    parser.add_argument("--output", type=Path, default=Path("outputs") / "prediction_preview.jpg")
     return parser.parse_args()
 
 
@@ -56,22 +51,25 @@ def main() -> None:
 
     checkpoint = torch.load(args.checkpoint, map_location=device)
     dataset = FreiHandLandmarkDataset(
-        image_size=args.image_size,
+        image_size=checkpoint.get("image_size", 224),
+        heatmap_size=checkpoint.get("heatmap_size", 56),
+        heatmap_sigma=checkpoint.get("heatmap_sigma", 2.0),
         normalize=True,
         return_tensors=True,
-        crop_hand=checkpoint.get("crop_hand", True),
+        crop_hand=checkpoint.get("crop_hand", False),
         crop_padding=checkpoint.get("crop_padding", 0.25),
         selected_landmark_indices=checkpoint.get("selected_landmark_indices"),
     )
     sample = dataset[args.index]
 
-    model = create_landmark_model(num_landmarks=checkpoint["num_landmarks"]).to(device)
+    model = create_heatmap_model(num_landmarks=checkpoint["num_landmarks"]).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
     image_tensor = sample["image"].unsqueeze(0).to(device)
     with torch.no_grad():
-        prediction = model(image_tensor)[0].cpu().numpy() * float(args.image_size)
+        predicted_heatmaps = model(image_tensor)
+        prediction = decode_heatmaps(predicted_heatmaps.cpu(), image_size=dataset.image_size)[0].numpy()
 
     target = sample["landmarks_2d"].cpu().numpy()
     image_rgb = (
