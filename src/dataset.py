@@ -39,6 +39,7 @@ FULL_HAND_CONNECTIONS = [
     (19, 20),
 ]
 DEFAULT_LANDMARK_INDICES = (0, 4, 8, 12, 16, 20)
+DEFAULT_MAPPING_MODE = "interleaved"
 DEFAULT_CONNECTIONS = [
     (0, 1),
     (0, 2),
@@ -221,6 +222,7 @@ class FreiHandLandmarkDataset(Dataset):
         crop_hand: bool = False,
         crop_padding: float = 0.25,
         selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
+        mapping_mode: str = DEFAULT_MAPPING_MODE,
     ) -> None:
         self.image_size = image_size
         self.heatmap_size = heatmap_size
@@ -232,6 +234,7 @@ class FreiHandLandmarkDataset(Dataset):
         self.selected_landmark_indices = tuple(selected_landmark_indices)
         self.selected_connections = infer_connections(len(self.selected_landmark_indices))
         self.num_landmarks = len(self.selected_landmark_indices)
+        self.mapping_mode = mapping_mode
 
         self.image_paths = sorted(TRAINING_RGB_PATH.glob("*.jpg"))
         self.landmarks_3d_all = _load_json_array(TRAINING_XYZ_PATH)
@@ -249,7 +252,11 @@ class FreiHandLandmarkDataset(Dataset):
         return len(self.image_paths)
 
     def get_annotation_index(self, image_index: int) -> int:
-        return image_index // self.images_per_annotation
+        if self.mapping_mode == "grouped":
+            return image_index // self.images_per_annotation
+        if self.mapping_mode == "interleaved":
+            return image_index % len(self.landmarks_3d_all)
+        raise ValueError(f"Unsupported mapping_mode: {self.mapping_mode}")
 
     def get_sample(self, image_index: int) -> FreiHandSample:
         image_path = self.image_paths[image_index]
@@ -342,6 +349,7 @@ class FreiHandLandmarkDataset(Dataset):
             "image_count": len(self.image_paths),
             "annotation_count": len(self.landmarks_3d_all),
             "images_per_annotation": self.images_per_annotation,
+            "mapping_mode": self.mapping_mode,
             "num_landmarks": self.num_landmarks,
             "image_size": self.image_size,
             "heatmap_size": self.heatmap_size,
@@ -361,6 +369,7 @@ def load_landmark_dataset(
     crop_hand: bool = False,
     crop_padding: float = 0.25,
     selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
+    mapping_mode: str = DEFAULT_MAPPING_MODE,
 ) -> FreiHandLandmarkDataset:
     return FreiHandLandmarkDataset(
         image_size=image_size,
@@ -371,4 +380,5 @@ def load_landmark_dataset(
         crop_hand=crop_hand,
         crop_padding=crop_padding,
         selected_landmark_indices=selected_landmark_indices,
+        mapping_mode=mapping_mode,
     )

@@ -6,7 +6,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from dataset import FreiHandLandmarkDataset, draw_landmarks
+from dataset import DEFAULT_MAPPING_MODE, FreiHandLandmarkDataset, draw_landmarks
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
         default=Path("outputs") / "landmark_preview_00000000.jpg",
         help="Hvor preview-bildet skal lagres.",
     )
+    parser.add_argument(
+        "--mapping-mode",
+        choices=["grouped", "interleaved"],
+        default=DEFAULT_MAPPING_MODE,
+        help="Hvordan RGB-bilder kobles til annotasjoner.",
+    )
     return parser.parse_args()
 
 
@@ -36,6 +42,8 @@ def main() -> None:
         image_size=args.image_size,
         normalize=True,
         return_tensors=False,
+        crop_hand=False,
+        mapping_mode=args.mapping_mode,
     )
     sample = dataset.get_sample(args.index)
 
