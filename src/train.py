@@ -39,6 +39,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("modell") / "landmark_heatmap11_best.pt",
     )
+    parser.add_argument(
+        "--resume-from",
+        type=Path,
+        default=None,
+        help="Fortsett trening fra en eksisterende checkpoint.",
+    )
     return parser.parse_args()
 
 
@@ -167,15 +173,18 @@ def run_epoch(
 def save_checkpoint(
     checkpoint_path: Path,
     model: nn.Module,
+    optimizer: torch.optim.Optimizer,
     args: argparse.Namespace,
     dataset: FreiHandLandmarkDataset,
     best_val_loss: float,
     best_epoch: int,
+    completed_epochs: int,
 ) -> None:
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
             "image_size": args.image_size,
             "heatmap_size": args.heatmap_size,
             "heatmap_sigma": args.heatmap_sigma,
@@ -185,6 +194,7 @@ def save_checkpoint(
             "crop_padding": dataset.crop_padding,
             "best_val_loss": best_val_loss,
             "best_epoch": best_epoch,
+            "completed_epochs": completed_epochs,
         },
         checkpoint_path,
     )
@@ -203,8 +213,45 @@ def save_checkpoint(
         "crop_hand": dataset.crop_hand,
         "best_val_loss": best_val_loss,
         "best_epoch": best_epoch,
+        "completed_epochs": completed_epochs,
+        "resume_from": str(args.resume_from) if args.resume_from is not None else None,
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+
+def latest_checkpoint_path(checkpoint_path: Path) -> Path:
+    return checkpoint_path.with_name(f"{checkpoint_path.stem}_latest{checkpoint_path.suffix}")
+
+
+def load_resume_checkpoint(
+    resume_path: Path,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    dataset: FreiHandLandmarkDataset,
+    device: torch.device,
+) -> tuple[float, int, int]:
+    checkpoint = torch.load(resume_path, map_location=device)
+
+    checkpoint_indices = tuple(checkpoint.get("selected_landmark_indices", []))
+    if checkpoint_indices != dataset.selected_landmark_indices:
+        raise ValueError(
+            "Checkpoint uses different landmark indices than the current dataset setup."
+        )
+
+    checkpoint_num_landmarks = checkpoint.get("num_landmarks")
+    if checkpoint_num_landmarks != dataset.num_landmarks:
+        raise ValueError("Checkpoint uses a different number of landmarks.")
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+
+    optimizer_state = checkpoint.get("optimizer_state_dict")
+    if optimizer_state is not None:
+        optimizer.load_state_dict(optimizer_state)
+
+    best_val_loss = float(checkpoint.get("best_val_loss", float("inf")))
+    best_epoch = int(checkpoint.get("best_epoch", 0))
+    completed_epochs = int(checkpoint.get("completed_epochs", best_epoch))
+    return best_val_loss, best_epoch, completed_epochs
 
 
 def main() -> None:
@@ -240,13 +287,28 @@ def main() -> None:
 
     best_val_loss = float("inf")
     best_epoch = 0
+    completed_epochs = 0
+
+    if args.resume_from is not None:
+        best_val_loss, best_epoch, completed_epochs = load_resume_checkpoint(
+            resume_path=args.resume_from,
+            model=model,
+            optimizer=optimizer,
+            dataset=dataset,
+            device=device,
+        )
 
     print("Device:", device)
     print("Dataset summary:", dataset.summary())
     print("Train batches:", len(train_loader))
     print("Validation batches:", len(val_loader))
+    if args.resume_from is not None:
+        print("Resume checkpoint:", args.resume_from)
+        print("Previously completed epochs:", completed_epochs)
+        print("Best validation loss so far:", round(best_val_loss, 5))
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch_offset in range(1, args.epochs + 1):
+        epoch = completed_epochs + epoch_offset
         train_loss, train_error = run_epoch(
             model=model,
             dataloader=train_loader,
@@ -265,7 +327,7 @@ def main() -> None:
         )
 
         print(
-            f"Epoch {epoch:02d}/{args.epochs} | "
+            f"Epoch {epoch:02d}/{completed_epochs + args.epochs} | "
             f"train_loss={train_loss:.5f} | train_pixel_error={train_error:.2f} | "
             f"val_loss={val_loss:.5f} | val_pixel_error={val_error:.2f}"
         )
@@ -273,8 +335,28 @@ def main() -> None:
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_epoch = epoch
-            save_checkpoint(args.checkpoint, model, args, dataset, best_val_loss, best_epoch)
+            save_checkpoint(
+                args.checkpoint,
+                model,
+                optimizer,
+                args,
+                dataset,
+                best_val_loss,
+                best_epoch,
+                completed_epochs=epoch,
+            )
             print(f"Saved best checkpoint to {args.checkpoint}")
+
+        save_checkpoint(
+            latest_checkpoint_path(args.checkpoint),
+            model,
+            optimizer,
+            args,
+            dataset,
+            best_val_loss,
+            best_epoch,
+            completed_epochs=epoch,
+        )
 
 
 if __name__ == "__main__":

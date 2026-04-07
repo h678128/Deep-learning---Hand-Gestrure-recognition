@@ -23,8 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("outputs") / "landmark_preview_00000000.jpg",
-        help="Hvor preview-bildet skal lagres.",
+        default=None,
+        help="Valgfri output-fil. Hvis ikke satt, lagres preview i en inspect-mappe.",
     )
     parser.add_argument(
         "--mapping-mode",
@@ -54,13 +54,19 @@ def main() -> None:
         connections=dataset.selected_connections,
     )
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    output_path = args.output or (
+        Path("outputs")
+        / "dataset_checks"
+        / f"{dataset.num_landmarks}pts_{args.mapping_mode}"
+        / f"landmark_{args.index:05d}.jpg"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     preview_bgr = cv2.cvtColor(preview_rgb, cv2.COLOR_RGB2BGR)
-    cv2.imwrite(str(args.output), preview_bgr)
+    cv2.imwrite(str(output_path), preview_bgr)
 
     summary = dataset.summary()
     print("Dataset summary:", summary)
-    print("Saved preview to:", args.output)
+    print("Saved preview to:", output_path)
     print("Image path:", sample.image_path)
     print("Image index:", sample.image_index)
     print("Annotation index:", sample.annotation_index)

@@ -21,8 +21,18 @@ def parse_args() -> argparse.Namespace:
         default=Path("modell") / "landmark_heatmap11_best.pt",
     )
     parser.add_argument("--index", type=int, default=0)
-    parser.add_argument("--output", type=Path, default=Path("outputs") / "prediction_preview.jpg")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Valgfri output-fil. Hvis ikke satt, lagres preview i en modellmappe.",
+    )
     return parser.parse_args()
+
+
+def default_output_path(checkpoint_path: Path, image_index: int) -> Path:
+    model_name = checkpoint_path.stem
+    return Path("outputs") / "model_runs" / model_name / "evaluate" / f"pred_{image_index:05d}.jpg"
 
 
 def draw_custom_landmarks(
@@ -91,13 +101,14 @@ def main() -> None:
         point_color=(50, 120, 255),
     )
 
+    output_path = args.output if args.output is not None else default_output_path(args.checkpoint, args.index)
     combined = np.concatenate([target_preview, prediction_preview], axis=1)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(args.output), cv2.cvtColor(combined, cv2.COLOR_RGB2BGR))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(output_path), cv2.cvtColor(combined, cv2.COLOR_RGB2BGR))
 
     pixel_error = np.linalg.norm(prediction - target, axis=1).mean()
     print("Checkpoint:", args.checkpoint)
-    print("Saved preview to:", args.output)
+    print("Saved preview to:", output_path)
     print("Image path:", sample["image_path"])
     print("Mean pixel error:", round(float(pixel_error), 2))
 
