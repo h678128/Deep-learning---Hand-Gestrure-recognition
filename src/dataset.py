@@ -38,14 +38,33 @@ FULL_HAND_CONNECTIONS = [
     (18, 19),
     (19, 20),
 ]
-DEFAULT_LANDMARK_INDICES = (0, 4, 8, 12, 16, 20)
+LANDMARK_INDICES_6 = (0, 4, 8, 12, 16, 20)
+LANDMARK_INDICES_11 = (0, 1, 4, 5, 8, 9, 12, 13, 16, 17, 20)
+LANDMARK_PRESETS: dict[str, tuple[int, ...]] = {
+    "6": LANDMARK_INDICES_6,
+    "11": LANDMARK_INDICES_11,
+    "21": tuple(range(21)),
+}
+DEFAULT_LANDMARK_INDICES = LANDMARK_INDICES_11
 DEFAULT_MAPPING_MODE = "interleaved"
-DEFAULT_CONNECTIONS = [
+SIMPLIFIED_CONNECTIONS_6 = [
     (0, 1),
     (0, 2),
     (0, 3),
     (0, 4),
     (0, 5),
+]
+SIMPLIFIED_CONNECTIONS_11 = [
+    (0, 1),
+    (1, 2),
+    (0, 3),
+    (3, 4),
+    (0, 5),
+    (5, 6),
+    (0, 7),
+    (7, 8),
+    (0, 9),
+    (9, 10),
 ]
 
 
@@ -98,10 +117,28 @@ def resize_landmarks(
     return scaled
 
 
-def infer_connections(num_landmarks: int) -> list[tuple[int, int]]:
-    if num_landmarks == len(DEFAULT_LANDMARK_INDICES):
-        return DEFAULT_CONNECTIONS
-    return FULL_HAND_CONNECTIONS
+def resolve_landmark_indices(preset: str | None = None) -> tuple[int, ...]:
+    if preset is None:
+        return DEFAULT_LANDMARK_INDICES
+    if preset not in LANDMARK_PRESETS:
+        raise ValueError(f"Unsupported landmark preset: {preset}")
+    return LANDMARK_PRESETS[preset]
+
+
+def infer_connections(selected_landmark_indices: Sequence[int]) -> list[tuple[int, int]]:
+    selected_tuple = tuple(selected_landmark_indices)
+
+    if selected_tuple == LANDMARK_INDICES_6:
+        return SIMPLIFIED_CONNECTIONS_6
+    if selected_tuple == LANDMARK_INDICES_11:
+        return SIMPLIFIED_CONNECTIONS_11
+
+    index_map = {original_idx: new_idx for new_idx, original_idx in enumerate(selected_tuple)}
+    filtered_connections: list[tuple[int, int]] = []
+    for start_idx, end_idx in FULL_HAND_CONNECTIONS:
+        if start_idx in index_map and end_idx in index_map:
+            filtered_connections.append((index_map[start_idx], index_map[end_idx]))
+    return filtered_connections
 
 
 def draw_landmarks(
@@ -111,7 +148,16 @@ def draw_landmarks(
     point_radius: int = 3,
 ) -> np.ndarray:
     canvas = image.copy()
-    active_connections = list(connections) if connections is not None else infer_connections(len(landmarks_xy))
+    if connections is not None:
+        active_connections = list(connections)
+    elif len(landmarks_xy) == len(LANDMARK_INDICES_6):
+        active_connections = SIMPLIFIED_CONNECTIONS_6
+    elif len(landmarks_xy) == len(LANDMARK_INDICES_11):
+        active_connections = SIMPLIFIED_CONNECTIONS_11
+    elif len(landmarks_xy) == 21:
+        active_connections = FULL_HAND_CONNECTIONS
+    else:
+        active_connections = []
 
     for start_idx, end_idx in active_connections:
         start_point = tuple(np.round(landmarks_xy[start_idx]).astype(int))
@@ -232,7 +278,7 @@ class FreiHandLandmarkDataset(Dataset):
         self.crop_hand = crop_hand
         self.crop_padding = crop_padding
         self.selected_landmark_indices = tuple(selected_landmark_indices)
-        self.selected_connections = infer_connections(len(self.selected_landmark_indices))
+        self.selected_connections = infer_connections(self.selected_landmark_indices)
         self.num_landmarks = len(self.selected_landmark_indices)
         self.mapping_mode = mapping_mode
 

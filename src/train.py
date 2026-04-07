@@ -16,7 +16,7 @@ from model import create_heatmap_model
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Train en heatmap-modell for 6 hand-keypoints."
+        description="Train en heatmap-modell for hand-keypoints."
     )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path("modell") / "landmark_heatmap6_best.pt",
+        default=Path("modell") / "landmark_heatmap11_best.pt",
     )
     return parser.parse_args()
 

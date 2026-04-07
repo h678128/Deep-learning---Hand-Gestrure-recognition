@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path("modell") / "landmark_heatmap6_best.pt",
+        default=Path("modell") / "landmark_heatmap11_best.pt",
     )
     parser.add_argument("--index", type=int, default=0)
     parser.add_argument("--output", type=Path, default=Path("outputs") / "prediction_preview.jpg")

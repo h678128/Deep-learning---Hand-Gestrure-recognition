@@ -48,7 +48,11 @@ def main() -> None:
     sample = dataset.get_sample(args.index)
 
     image_uint8 = np.clip(sample.image * 255.0, 0, 255).astype(np.uint8)
-    preview_rgb = draw_landmarks(image_uint8, sample.landmarks_2d)
+    preview_rgb = draw_landmarks(
+        image_uint8,
+        sample.landmarks_2d,
+        connections=dataset.selected_connections,
+    )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     preview_bgr = cv2.cvtColor(preview_rgb, cv2.COLOR_RGB2BGR)

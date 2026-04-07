@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import torch
 
-from dataset import DEFAULT_CONNECTIONS, decode_heatmaps
+from dataset import decode_heatmaps, infer_connections
 from model import create_heatmap_model
 
 
@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=Path("modell") / "landmark_heatmap6_interleaved_20k.pt",
+        default=Path("modell") / "landmark_heatmap11_best.pt",
     )
     parser.add_argument("--camera-index", type=int, default=0)
     parser.add_argument("--confidence-threshold", type=float, default=0.15)
@@ -58,6 +58,7 @@ def heatmap_confidences(heatmaps: torch.Tensor) -> np.ndarray:
 def draw_prediction(
     frame_bgr: np.ndarray,
     landmarks_xy: np.ndarray,
+    connections: list[tuple[int, int]],
     confidences: np.ndarray,
     confidence_threshold: float,
 ) -> np.ndarray:
@@ -65,7 +66,7 @@ def draw_prediction(
 
     visible = confidences >= confidence_threshold
 
-    for start_idx, end_idx in DEFAULT_CONNECTIONS:
+    for start_idx, end_idx in connections:
         if not (visible[start_idx] and visible[end_idx]):
             continue
         start_point = tuple(np.round(landmarks_xy[start_idx]).astype(int))
@@ -97,6 +98,8 @@ def main() -> None:
     checkpoint = torch.load(args.checkpoint, map_location=device)
     image_size = checkpoint.get("image_size", 224)
     num_landmarks = checkpoint.get("num_landmarks", 6)
+    selected_landmark_indices = checkpoint.get("selected_landmark_indices")
+    connections = infer_connections(selected_landmark_indices)
 
     model = create_heatmap_model(num_landmarks=num_landmarks).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -140,6 +143,7 @@ def main() -> None:
             preview = draw_prediction(
                 frame_bgr,
                 smoothed_landmarks,
+                connections,
                 confidences,
                 confidence_threshold=args.confidence_threshold,
             )

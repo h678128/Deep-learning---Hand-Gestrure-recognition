@@ -21,7 +21,7 @@ class ConvBlock(nn.Module):
 
 
 class HandHeatmapCNN(nn.Module):
-    def __init__(self, num_landmarks: int = 6) -> None:
+    def __init__(self, num_landmarks: int = 11) -> None:
         super().__init__()
         self.num_landmarks = num_landmarks
 
@@ -52,5 +52,5 @@ class HandHeatmapCNN(nn.Module):
         return self.output_head(dec1)
 
 
-def create_heatmap_model(num_landmarks: int = 6) -> HandHeatmapCNN:
+def create_heatmap_model(num_landmarks: int = 11) -> HandHeatmapCNN:
     return HandHeatmapCNN(num_landmarks=num_landmarks)
