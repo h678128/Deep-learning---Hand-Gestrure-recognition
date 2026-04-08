@@ -216,6 +216,57 @@ def crop_image_and_landmarks(
     return cropped_image, cropped_landmarks
 
 
+def apply_geometric_augmentation(
+    image_rgb: np.ndarray,
+    landmarks_xy: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    image_h, image_w = image_rgb.shape[:2]
+    center = (image_w / 2.0, image_h / 2.0)
+
+    angle = float(np.random.uniform(-12.0, 12.0))
+    scale = float(np.random.uniform(0.92, 1.08))
+    shift_x = float(np.random.uniform(-0.05, 0.05) * image_w)
+    shift_y = float(np.random.uniform(-0.05, 0.05) * image_h)
+
+    transform = cv2.getRotationMatrix2D(center, angle, scale)
+    transform[0, 2] += shift_x
+    transform[1, 2] += shift_y
+
+    augmented_image = cv2.warpAffine(
+        image_rgb,
+        transform,
+        (image_w, image_h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT_101,
+    )
+
+    homogeneous_landmarks = np.concatenate(
+        [landmarks_xy, np.ones((len(landmarks_xy), 1), dtype=np.float32)],
+        axis=1,
+    )
+    augmented_landmarks = homogeneous_landmarks @ transform.T
+    augmented_landmarks[:, 0] = np.clip(augmented_landmarks[:, 0], 0, image_w - 1)
+    augmented_landmarks[:, 1] = np.clip(augmented_landmarks[:, 1], 0, image_h - 1)
+    return augmented_image, augmented_landmarks.astype(np.float32)
+
+
+def apply_photometric_augmentation(image_rgb: np.ndarray) -> np.ndarray:
+    augmented = image_rgb.astype(np.float32)
+
+    contrast = float(np.random.uniform(0.85, 1.15))
+    brightness = float(np.random.uniform(-18.0, 18.0))
+    augmented = augmented * contrast + brightness
+
+    if np.random.rand() < 0.3:
+        augmented = cv2.GaussianBlur(augmented, (3, 3), sigmaX=0.0)
+
+    if np.random.rand() < 0.35:
+        noise_sigma = float(np.random.uniform(3.0, 8.0))
+        augmented += np.random.normal(0.0, noise_sigma, size=augmented.shape).astype(np.float32)
+
+    return np.clip(augmented, 0, 255).astype(np.uint8)
+
+
 def generate_heatmaps(
     landmarks_xy: np.ndarray,
     image_size: int,
@@ -267,6 +318,7 @@ class FreiHandLandmarkDataset(Dataset):
         return_tensors: bool = True,
         crop_hand: bool = False,
         crop_padding: float = 0.25,
+        augment: bool = False,
         selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
         mapping_mode: str = DEFAULT_MAPPING_MODE,
     ) -> None:
@@ -277,6 +329,7 @@ class FreiHandLandmarkDataset(Dataset):
         self.return_tensors = return_tensors
         self.crop_hand = crop_hand
         self.crop_padding = crop_padding
+        self.augment = augment
         self.selected_landmark_indices = tuple(selected_landmark_indices)
         self.selected_connections = infer_connections(self.selected_landmark_indices)
         self.num_landmarks = len(self.selected_landmark_indices)
@@ -330,6 +383,13 @@ class FreiHandLandmarkDataset(Dataset):
                 crop_box,
             )
             original_hw = image_rgb.shape[:2]
+
+        if self.augment:
+            image_rgb, selected_landmarks_2d = apply_geometric_augmentation(
+                image_rgb,
+                selected_landmarks_2d,
+            )
+            image_rgb = apply_photometric_augmentation(image_rgb)
 
         target_hw = (self.image_size, self.image_size)
         image_rgb = cv2.resize(image_rgb, (self.image_size, self.image_size))
@@ -402,6 +462,7 @@ class FreiHandLandmarkDataset(Dataset):
             "heatmap_sigma": self.heatmap_sigma,
             "crop_hand": self.crop_hand,
             "crop_padding": self.crop_padding,
+            "augment": self.augment,
             "selected_landmark_indices": list(self.selected_landmark_indices),
         }
 
@@ -414,6 +475,7 @@ def load_landmark_dataset(
     return_tensors: bool = True,
     crop_hand: bool = False,
     crop_padding: float = 0.25,
+    augment: bool = False,
     selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
     mapping_mode: str = DEFAULT_MAPPING_MODE,
 ) -> FreiHandLandmarkDataset:
@@ -425,6 +487,7 @@ def load_landmark_dataset(
         return_tensors=return_tensors,
         crop_hand=crop_hand,
         crop_padding=crop_padding,
+        augment=augment,
         selected_landmark_indices=selected_landmark_indices,
         mapping_mode=mapping_mode,
     )

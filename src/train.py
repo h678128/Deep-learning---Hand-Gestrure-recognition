@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset
 
 from dataset import DEFAULT_LANDMARK_INDICES, FreiHandLandmarkDataset, decode_heatmaps
 from model import create_heatmap_model
@@ -45,6 +45,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Fortsett trening fra en eksisterende checkpoint.",
     )
+    parser.add_argument(
+        "--augment",
+        action="store_true",
+        help="Bruk moderat dataaugmentasjon paa treningssettet.",
+    )
+    parser.add_argument(
+        "--crop-hand",
+        action="store_true",
+        help="Crop rundt haanden basert paa fasit-landmarks.",
+    )
     return parser.parse_args()
 
 
@@ -69,25 +79,20 @@ def set_seed(seed: int) -> None:
 
 
 def create_dataloaders(
-    dataset: FreiHandLandmarkDataset,
+    train_dataset: FreiHandLandmarkDataset,
+    val_dataset: FreiHandLandmarkDataset,
     batch_size: int,
     val_ratio: float,
     seed: int,
     num_workers: int,
     max_samples: int | None = None,
 ) -> tuple[DataLoader, DataLoader]:
-    total_indices = list(range(len(dataset)))
+    total_indices = list(range(len(train_dataset)))
 
     if max_samples is not None:
         total_indices = total_indices[:max_samples]
 
-    subset_dataset: Dataset
-    if max_samples is None:
-        subset_dataset = dataset
-    else:
-        subset_dataset = DatasetSubset(dataset, total_indices)
-
-    total_size = len(subset_dataset)
+    total_size = len(total_indices)
     val_size = max(1, int(total_size * val_ratio))
     train_size = total_size - val_size
 
@@ -95,21 +100,22 @@ def create_dataloaders(
         raise ValueError("Validation split is too large for the selected dataset size.")
 
     generator = torch.Generator().manual_seed(seed)
-    train_dataset, val_dataset = random_split(
-        subset_dataset,
-        [train_size, val_size],
-        generator=generator,
-    )
+    shuffled_indices = torch.randperm(total_size, generator=generator).tolist()
+    train_indices = [total_indices[index] for index in shuffled_indices[:train_size]]
+    val_indices = [total_indices[index] for index in shuffled_indices[train_size:]]
+
+    train_subset = DatasetSubset(train_dataset, train_indices)
+    val_subset = DatasetSubset(val_dataset, val_indices)
 
     train_loader = DataLoader(
-        train_dataset,
+        train_subset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
     )
     val_loader = DataLoader(
-        val_dataset,
+        val_subset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
@@ -211,6 +217,7 @@ def save_checkpoint(
         "weight_decay": args.weight_decay,
         "selected_landmark_indices": list(dataset.selected_landmark_indices),
         "crop_hand": dataset.crop_hand,
+        "augment": dataset.augment,
         "best_val_loss": best_val_loss,
         "best_epoch": best_epoch,
         "completed_epochs": completed_epochs,
@@ -259,17 +266,29 @@ def main() -> None:
     set_seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dataset = FreiHandLandmarkDataset(
+    train_dataset = FreiHandLandmarkDataset(
         image_size=args.image_size,
         heatmap_size=args.heatmap_size,
         heatmap_sigma=args.heatmap_sigma,
         normalize=True,
         return_tensors=True,
-        crop_hand=False,
+        crop_hand=args.crop_hand,
+        augment=args.augment,
+        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
+    )
+    val_dataset = FreiHandLandmarkDataset(
+        image_size=args.image_size,
+        heatmap_size=args.heatmap_size,
+        heatmap_sigma=args.heatmap_sigma,
+        normalize=True,
+        return_tensors=True,
+        crop_hand=args.crop_hand,
+        augment=False,
         selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
     )
     train_loader, val_loader = create_dataloaders(
-        dataset=dataset,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         batch_size=args.batch_size,
         val_ratio=args.val_ratio,
         seed=args.seed,
@@ -277,7 +296,7 @@ def main() -> None:
         max_samples=args.max_samples,
     )
 
-    model = create_heatmap_model(num_landmarks=dataset.num_landmarks).to(device)
+    model = create_heatmap_model(num_landmarks=train_dataset.num_landmarks).to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -294,12 +313,13 @@ def main() -> None:
             resume_path=args.resume_from,
             model=model,
             optimizer=optimizer,
-            dataset=dataset,
+            dataset=train_dataset,
             device=device,
         )
 
     print("Device:", device)
-    print("Dataset summary:", dataset.summary())
+    print("Train dataset summary:", train_dataset.summary())
+    print("Validation dataset summary:", val_dataset.summary())
     print("Train batches:", len(train_loader))
     print("Validation batches:", len(val_loader))
     if args.resume_from is not None:
@@ -340,7 +360,7 @@ def main() -> None:
                 model,
                 optimizer,
                 args,
-                dataset,
+                train_dataset,
                 best_val_loss,
                 best_epoch,
                 completed_epochs=epoch,
@@ -352,7 +372,7 @@ def main() -> None:
             model,
             optimizer,
             args,
-            dataset,
+            train_dataset,
             best_val_loss,
             best_epoch,
             completed_epochs=epoch,
