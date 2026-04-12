@@ -219,14 +219,21 @@ def crop_image_and_landmarks(
 def apply_geometric_augmentation(
     image_rgb: np.ndarray,
     landmarks_xy: np.ndarray,
+    strength: str = "moderate",
 ) -> tuple[np.ndarray, np.ndarray]:
     image_h, image_w = image_rgb.shape[:2]
     center = (image_w / 2.0, image_h / 2.0)
 
-    angle = float(np.random.uniform(-12.0, 12.0))
-    scale = float(np.random.uniform(0.92, 1.08))
-    shift_x = float(np.random.uniform(-0.05, 0.05) * image_w)
-    shift_y = float(np.random.uniform(-0.05, 0.05) * image_h)
+    if strength == "strong":
+        angle = float(np.random.uniform(-18.0, 18.0))
+        scale = float(np.random.uniform(0.85, 1.15))
+        shift_x = float(np.random.uniform(-0.08, 0.08) * image_w)
+        shift_y = float(np.random.uniform(-0.08, 0.08) * image_h)
+    else:
+        angle = float(np.random.uniform(-12.0, 12.0))
+        scale = float(np.random.uniform(0.92, 1.08))
+        shift_x = float(np.random.uniform(-0.05, 0.05) * image_w)
+        shift_y = float(np.random.uniform(-0.05, 0.05) * image_h)
 
     transform = cv2.getRotationMatrix2D(center, angle, scale)
     transform[0, 2] += shift_x
@@ -250,18 +257,29 @@ def apply_geometric_augmentation(
     return augmented_image, augmented_landmarks.astype(np.float32)
 
 
-def apply_photometric_augmentation(image_rgb: np.ndarray) -> np.ndarray:
+def apply_photometric_augmentation(image_rgb: np.ndarray, strength: str = "moderate") -> np.ndarray:
     augmented = image_rgb.astype(np.float32)
 
-    contrast = float(np.random.uniform(0.85, 1.15))
-    brightness = float(np.random.uniform(-18.0, 18.0))
+    if strength == "strong":
+        contrast = float(np.random.uniform(0.7, 1.3))
+        brightness = float(np.random.uniform(-32.0, 32.0))
+        blur_probability = 0.45
+        noise_probability = 0.5
+        noise_sigma_range = (5.0, 14.0)
+    else:
+        contrast = float(np.random.uniform(0.85, 1.15))
+        brightness = float(np.random.uniform(-18.0, 18.0))
+        blur_probability = 0.3
+        noise_probability = 0.35
+        noise_sigma_range = (3.0, 8.0)
+
     augmented = augmented * contrast + brightness
 
-    if np.random.rand() < 0.3:
+    if np.random.rand() < blur_probability:
         augmented = cv2.GaussianBlur(augmented, (3, 3), sigmaX=0.0)
 
-    if np.random.rand() < 0.35:
-        noise_sigma = float(np.random.uniform(3.0, 8.0))
+    if np.random.rand() < noise_probability:
+        noise_sigma = float(np.random.uniform(*noise_sigma_range))
         augmented += np.random.normal(0.0, noise_sigma, size=augmented.shape).astype(np.float32)
 
     return np.clip(augmented, 0, 255).astype(np.uint8)
@@ -319,6 +337,7 @@ class FreiHandLandmarkDataset(Dataset):
         crop_hand: bool = False,
         crop_padding: float = 0.25,
         augment: bool = False,
+        augment_strength: str = "moderate",
         selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
         mapping_mode: str = DEFAULT_MAPPING_MODE,
     ) -> None:
@@ -330,6 +349,7 @@ class FreiHandLandmarkDataset(Dataset):
         self.crop_hand = crop_hand
         self.crop_padding = crop_padding
         self.augment = augment
+        self.augment_strength = augment_strength
         self.selected_landmark_indices = tuple(selected_landmark_indices)
         self.selected_connections = infer_connections(self.selected_landmark_indices)
         self.num_landmarks = len(self.selected_landmark_indices)
@@ -388,8 +408,12 @@ class FreiHandLandmarkDataset(Dataset):
             image_rgb, selected_landmarks_2d = apply_geometric_augmentation(
                 image_rgb,
                 selected_landmarks_2d,
+                strength=self.augment_strength,
             )
-            image_rgb = apply_photometric_augmentation(image_rgb)
+            image_rgb = apply_photometric_augmentation(
+                image_rgb,
+                strength=self.augment_strength,
+            )
 
         target_hw = (self.image_size, self.image_size)
         image_rgb = cv2.resize(image_rgb, (self.image_size, self.image_size))
@@ -463,6 +487,7 @@ class FreiHandLandmarkDataset(Dataset):
             "crop_hand": self.crop_hand,
             "crop_padding": self.crop_padding,
             "augment": self.augment,
+            "augment_strength": self.augment_strength,
             "selected_landmark_indices": list(self.selected_landmark_indices),
         }
 
@@ -476,6 +501,7 @@ def load_landmark_dataset(
     crop_hand: bool = False,
     crop_padding: float = 0.25,
     augment: bool = False,
+    augment_strength: str = "moderate",
     selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
     mapping_mode: str = DEFAULT_MAPPING_MODE,
 ) -> FreiHandLandmarkDataset:
@@ -488,6 +514,7 @@ def load_landmark_dataset(
         crop_hand=crop_hand,
         crop_padding=crop_padding,
         augment=augment,
+        augment_strength=augment_strength,
         selected_landmark_indices=selected_landmark_indices,
         mapping_mode=mapping_mode,
     )

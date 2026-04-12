@@ -51,6 +51,12 @@ def parse_args() -> argparse.Namespace:
         help="Bruk moderat dataaugmentasjon paa treningssettet.",
     )
     parser.add_argument(
+        "--augment-strength",
+        choices=["moderate", "strong"],
+        default="moderate",
+        help="Styrke paa augmentasjon naar --augment er aktiv.",
+    )
+    parser.add_argument(
         "--crop-hand",
         action="store_true",
         help="Crop rundt haanden basert paa fasit-landmarks.",
@@ -218,6 +224,7 @@ def save_checkpoint(
         "selected_landmark_indices": list(dataset.selected_landmark_indices),
         "crop_hand": dataset.crop_hand,
         "augment": dataset.augment,
+        "augment_strength": dataset.augment_strength,
         "best_val_loss": best_val_loss,
         "best_epoch": best_epoch,
         "completed_epochs": completed_epochs,
@@ -274,6 +281,7 @@ def main() -> None:
         return_tensors=True,
         crop_hand=args.crop_hand,
         augment=args.augment,
+        augment_strength=args.augment_strength,
         selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
     )
     val_dataset = FreiHandLandmarkDataset(
@@ -284,6 +292,7 @@ def main() -> None:
         return_tensors=True,
         crop_hand=args.crop_hand,
         augment=False,
+        augment_strength=args.augment_strength,
         selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
     )
     train_loader, val_loader = create_dataloaders(
