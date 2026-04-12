@@ -21,24 +21,12 @@ def parse_args() -> argparse.Namespace:
         default=Path("modell") / "landmark_heatmap11_best.pt",
     )
     parser.add_argument("--camera-index", type=int, default=0)
-    parser.add_argument("--confidence-threshold", type=float, default=0.25)
+    parser.add_argument("--confidence-threshold", type=float, default=0.15)
     parser.add_argument(
         "--smooth-factor",
         type=float,
-        default=0.8,
+        default=0.6,
         help="Hoyere verdi gir roligere punkter.",
-    )
-    parser.add_argument(
-        "--deadzone-px",
-        type=float,
-        default=4.0,
-        help="Ignorer sma bevegelser under denne terskelen.",
-    )
-    parser.add_argument(
-        "--max-missed-frames",
-        type=int,
-        default=8,
-        help="Hvor lenge vi holder siste gode punkt naar confidence er lav.",
     )
     return parser.parse_args()
 
@@ -65,46 +53,6 @@ def upscale_landmarks(
 def heatmap_confidences(heatmaps: torch.Tensor) -> np.ndarray:
     confidences = heatmaps.view(heatmaps.shape[0], heatmaps.shape[1], -1).amax(dim=-1)
     return confidences[0].cpu().numpy()
-
-
-def smooth_landmarks(
-    previous_landmarks: np.ndarray | None,
-    predicted_landmarks: np.ndarray,
-    confidences: np.ndarray,
-    missed_counts: np.ndarray,
-    base_smooth_factor: float,
-    confidence_threshold: float,
-    deadzone_px: float,
-    max_missed_frames: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    if previous_landmarks is None:
-        return predicted_landmarks.copy(), np.zeros_like(missed_counts)
-
-    smoothed = previous_landmarks.copy()
-    updated_missed_counts = missed_counts.copy()
-    base_alpha = float(np.clip(base_smooth_factor, 0.0, 0.98))
-
-    for index, predicted_point in enumerate(predicted_landmarks):
-        confidence = float(confidences[index])
-
-        if confidence >= confidence_threshold:
-            updated_missed_counts[index] = 0
-            adaptive_alpha = min(0.98, max(0.0, base_alpha + (1.0 - confidence) * 0.15))
-            candidate_point = (
-                adaptive_alpha * smoothed[index] + (1.0 - adaptive_alpha) * predicted_point
-            )
-
-            if np.linalg.norm(candidate_point - smoothed[index]) < deadzone_px:
-                continue
-
-            smoothed[index] = candidate_point
-            continue
-
-        updated_missed_counts[index] += 1
-        if updated_missed_counts[index] > max_missed_frames:
-            smoothed[index] = predicted_point
-
-    return smoothed, updated_missed_counts
 
 
 def draw_prediction(
@@ -140,16 +88,6 @@ def draw_prediction(
         2,
         cv2.LINE_AA,
     )
-    cv2.putText(
-        canvas,
-        f"avg conf: {confidences.mean():.2f}",
-        (12, 56),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
     return canvas
 
 
@@ -172,7 +110,6 @@ def main() -> None:
         raise RuntimeError(f"Could not open webcam at index {args.camera_index}.")
 
     smoothed_landmarks: np.ndarray | None = None
-    missed_counts = np.zeros(num_landmarks, dtype=np.int32)
 
     try:
         while True:
@@ -197,16 +134,11 @@ def main() -> None:
                 target_hw=frame_bgr.shape[:2],
             )
 
-            smoothed_landmarks, missed_counts = smooth_landmarks(
-                previous_landmarks=smoothed_landmarks,
-                predicted_landmarks=predicted_landmarks,
-                confidences=confidences,
-                missed_counts=missed_counts,
-                base_smooth_factor=args.smooth_factor,
-                confidence_threshold=args.confidence_threshold,
-                deadzone_px=args.deadzone_px,
-                max_missed_frames=args.max_missed_frames,
-            )
+            if smoothed_landmarks is None:
+                smoothed_landmarks = predicted_landmarks
+            else:
+                alpha = np.clip(args.smooth_factor, 0.0, 0.99)
+                smoothed_landmarks = alpha * smoothed_landmarks + (1.0 - alpha) * predicted_landmarks
 
             preview = draw_prediction(
                 frame_bgr,
