@@ -24,48 +24,86 @@ HTML_TEMPLATE = """
     <title>Hand Landmark Demo</title>
     <style>
       :root {
-        --bg: #f4efe6;
-        --panel: #fff8ee;
-        --ink: #1d1d1d;
-        --accent: #0e8f5b;
-        --accent-soft: #d7f1e6;
-        --border: #d8c9b4;
+        --bg: #efe6d5;
+        --bg-deep: #dcc6a3;
+        --panel: rgba(255, 249, 239, 0.9);
+        --ink: #1f1a14;
+        --muted: #5f5346;
+        --accent: #126b57;
+        --accent-soft: #d8f0e6;
+        --accent-warm: #bf6f34;
+        --border: rgba(111, 85, 50, 0.18);
+        --shadow: 0 18px 40px rgba(54, 34, 8, 0.12);
       }
       body {
         margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
+        font-family: "Palatino Linotype", "Book Antiqua", Georgia, serif;
         color: var(--ink);
         background:
-          radial-gradient(circle at top left, #fff7cc 0, transparent 30%),
-          linear-gradient(135deg, #f4efe6, #efe1cf);
+          radial-gradient(circle at top left, rgba(255, 247, 204, 0.95) 0, transparent 28%),
+          radial-gradient(circle at bottom right, rgba(18, 107, 87, 0.12) 0, transparent 24%),
+          linear-gradient(145deg, var(--bg), var(--bg-deep));
+        min-height: 100vh;
       }
       .page {
-        max-width: 1100px;
+        max-width: 1180px;
         margin: 0 auto;
-        padding: 32px 20px 56px;
+        padding: 28px 20px 64px;
       }
       .hero {
         display: grid;
-        gap: 14px;
-        margin-bottom: 24px;
+        gap: 18px;
+        margin-bottom: 28px;
+        padding: 26px;
+        background:
+          linear-gradient(135deg, rgba(255, 250, 242, 0.96), rgba(245, 235, 218, 0.92)),
+          repeating-linear-gradient(
+            135deg,
+            rgba(111, 85, 50, 0.03) 0,
+            rgba(111, 85, 50, 0.03) 10px,
+            transparent 10px,
+            transparent 22px
+          );
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        box-shadow: var(--shadow);
       }
       h1 {
         margin: 0;
-        font-size: clamp(2rem, 4vw, 3.4rem);
-        line-height: 0.95;
+        font-size: clamp(2.4rem, 5vw, 4.8rem);
+        line-height: 0.9;
         letter-spacing: -0.03em;
+        max-width: 9ch;
       }
       .lead {
-        max-width: 720px;
-        font-size: 1.05rem;
-        line-height: 1.5;
+        max-width: 760px;
+        font-size: 1.08rem;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .hero-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 9px 14px;
+        background: rgba(18, 107, 87, 0.08);
+        color: #134f42;
+        font-size: 0.95rem;
+        font-weight: 700;
       }
       .panel {
-        background: color-mix(in srgb, var(--panel) 92%, white);
+        background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 18px;
-        box-shadow: 0 12px 30px rgba(48, 32, 10, 0.08);
-        padding: 18px;
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        padding: 20px;
+        backdrop-filter: blur(10px);
       }
       form {
         display: grid;
@@ -90,19 +128,26 @@ HTML_TEMPLATE = """
         font: inherit;
       }
       input[type="file"], select {
-        background: white;
+        background: rgba(255, 255, 255, 0.88);
         border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 10px 12px;
+        border-radius: 14px;
+        padding: 12px 14px;
+        color: var(--ink);
       }
       button {
         border: none;
         border-radius: 999px;
         padding: 12px 18px;
-        background: linear-gradient(135deg, #0e8f5b, #0a6b44);
+        background: linear-gradient(135deg, var(--accent), #0d5343);
         color: white;
         font-weight: 700;
         cursor: pointer;
+        box-shadow: 0 10px 22px rgba(18, 107, 87, 0.25);
+        transition: transform 120ms ease, box-shadow 120ms ease;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 24px rgba(18, 107, 87, 0.32);
       }
       .results {
         display: grid;
@@ -129,7 +174,7 @@ HTML_TEMPLATE = """
       }
       .image-card img, .image-card video, .image-card canvas {
         width: 100%;
-        border-radius: 14px;
+        border-radius: 18px;
         border: 1px solid var(--border);
         background: #f5f5f5;
       }
@@ -139,13 +184,18 @@ HTML_TEMPLATE = """
         gap: 10px;
       }
       .secondary {
-        background: white;
+        background: rgba(255, 255, 255, 0.84);
         color: var(--ink);
         border: 1px solid var(--border);
+        box-shadow: none;
       }
       .status {
         font-size: 0.95rem;
-        color: #4e4333;
+        color: var(--muted);
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(255,255,255,0.6);
+        border: 1px solid rgba(111, 85, 50, 0.1);
       }
       .meta {
         display: flex;
@@ -164,21 +214,62 @@ HTML_TEMPLATE = """
       .error {
         color: #9b1f1f;
         font-weight: 700;
+        margin: 0;
+      }
+      .section-kicker {
+        display: inline-block;
+        margin-bottom: 8px;
+        color: var(--accent-warm);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .section-title {
+        margin: 0 0 6px;
+        font-size: 1.5rem;
+        line-height: 1.1;
+      }
+      .section-copy {
+        margin: 0 0 16px;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+      .camera-frame {
+        position: relative;
+      }
+      .camera-frame::after {
+        content: "";
+        position: absolute;
+        inset: 14px;
+        border: 1px dashed rgba(255,255,255,0.45);
+        border-radius: 16px;
+        pointer-events: none;
       }
     </style>
   </head>
   <body>
     <main class="page">
       <section class="hero">
+        <div class="hero-meta">
+          <span class="hero-pill">Heatmap CNN</span>
+          <span class="hero-pill">11 Landmarks</span>
+          <span class="hero-pill">Image + Live Demo</span>
+        </div>
         <h1>Hand Landmark Demo</h1>
         <div class="lead">
-          Upload an image and run one of the trained landmark models in the browser-backed demo.
-          This is useful for showing unseen data in a more presentable way than the raw terminal scripts.
+          Explore the project in a cleaner way than the raw terminal workflow. You can upload an unseen image,
+          take a single webcam snapshot, or run a lightweight live demo that repeatedly sends frames to the backend.
         </div>
       </section>
 
       <section class="split">
         <section class="panel">
+          <div class="section-kicker">Static Prediction</div>
+          <h2 class="section-title">Upload An Image</h2>
+          <p class="section-copy">
+            Test any still image with one of the saved checkpoints and inspect the predicted landmarks.
+          </p>
           <form method="post" enctype="multipart/form-data">
             <div class="grid">
               <label>
@@ -214,8 +305,14 @@ HTML_TEMPLATE = """
         </section>
 
         <section class="panel image-card">
-          <strong>Camera Mode</strong>
-          <video id="camera-preview" autoplay playsinline muted></video>
+          <div class="section-kicker">Camera Prediction</div>
+          <h2 class="section-title">Use Your Webcam</h2>
+          <p class="section-copy">
+            Give the browser access to your camera, then either capture a single frame or let the app run repeated predictions.
+          </p>
+          <div class="camera-frame">
+            <video id="camera-preview" autoplay playsinline muted></video>
+          </div>
           <canvas id="camera-canvas" hidden></canvas>
           <div class="camera-actions">
             <button type="button" id="start-camera">Start Camera</button>
@@ -231,11 +328,13 @@ HTML_TEMPLATE = """
       {% if result_image %}
       <section class="results">
         <article class="panel image-card">
-          <strong>Original</strong>
+          <div class="section-kicker">Input</div>
+          <strong>Original Image</strong>
           <img src="data:image/jpeg;base64,{{ original_image }}" alt="Original image">
         </article>
         <article class="panel image-card">
-          <strong>Prediction</strong>
+          <div class="section-kicker">Output</div>
+          <strong>Predicted Landmarks</strong>
           <img src="data:image/jpeg;base64,{{ result_image }}" alt="Prediction image">
           <div class="meta">
             <span class="pill">avg confidence: {{ avg_confidence }}</span>
@@ -248,10 +347,12 @@ HTML_TEMPLATE = """
 
       <section class="results" id="camera-results" {% if not result_image %}style="display:none"{% endif %}>
         <article class="panel image-card">
-          <strong>Camera Snapshot</strong>
+          <div class="section-kicker">Snapshot</div>
+          <strong>Camera Frame</strong>
           <img id="camera-original" src="{% if original_image %}data:image/jpeg;base64,{{ original_image }}{% endif %}" alt="Camera snapshot">
         </article>
         <article class="panel image-card">
+          <div class="section-kicker">Live Output</div>
           <strong>Camera Prediction</strong>
           <img id="camera-prediction" src="{% if result_image %}data:image/jpeg;base64,{{ result_image }}{% endif %}" alt="Camera prediction">
           <div class="meta">
