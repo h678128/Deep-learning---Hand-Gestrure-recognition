@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
-from flask import Flask, render_template_string, request
+from flask import Flask, jsonify, render_template_string, request
 
 from dataset import decode_heatmaps, infer_connections
 from model import create_heatmap_model
@@ -114,15 +114,38 @@ HTML_TEMPLATE = """
           grid-template-columns: 1fr 1fr;
         }
       }
+      .split {
+        display: grid;
+        gap: 18px;
+      }
+      @media (min-width: 900px) {
+        .split {
+          grid-template-columns: 1.1fr 0.9fr;
+        }
+      }
       .image-card {
         display: grid;
         gap: 10px;
       }
-      .image-card img {
+      .image-card img, .image-card video, .image-card canvas {
         width: 100%;
         border-radius: 14px;
         border: 1px solid var(--border);
         background: #f5f5f5;
+      }
+      .camera-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .secondary {
+        background: white;
+        color: var(--ink);
+        border: 1px solid var(--border);
+      }
+      .status {
+        font-size: 0.95rem;
+        color: #4e4333;
       }
       .meta {
         display: flex;
@@ -154,39 +177,55 @@ HTML_TEMPLATE = """
         </div>
       </section>
 
-      <section class="panel">
-        <form method="post" enctype="multipart/form-data">
-          <div class="grid">
-            <label>
-              Image
-              <input type="file" name="image" accept=".jpg,.jpeg,.png,.bmp,.webp" required>
-            </label>
-            <label>
-              Checkpoint
-              <select name="checkpoint">
-                {% for checkpoint_name in checkpoint_names %}
-                <option value="{{ checkpoint_name }}" {% if checkpoint_name == selected_checkpoint %}selected{% endif %}>
-                  {{ checkpoint_name }}
-                </option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>
-              Confidence Threshold
-              <select name="confidence_threshold">
-                {% for value in ["0.15", "0.20", "0.25", "0.30"] %}
-                <option value="{{ value }}" {% if value == selected_threshold %}selected{% endif %}>
-                  {{ value }}
-                </option>
-                {% endfor %}
-              </select>
-            </label>
+      <section class="split">
+        <section class="panel">
+          <form method="post" enctype="multipart/form-data">
+            <div class="grid">
+              <label>
+                Image
+                <input type="file" name="image" accept=".jpg,.jpeg,.png,.bmp,.webp" required>
+              </label>
+              <label>
+                Checkpoint
+                <select name="checkpoint" id="checkpoint-select">
+                  {% for checkpoint_name in checkpoint_names %}
+                  <option value="{{ checkpoint_name }}" {% if checkpoint_name == selected_checkpoint %}selected{% endif %}>
+                    {{ checkpoint_name }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>
+                Confidence Threshold
+                <select name="confidence_threshold" id="confidence-threshold">
+                  {% for value in ["0.15", "0.20", "0.25", "0.30"] %}
+                  <option value="{{ value }}" {% if value == selected_threshold %}selected{% endif %}>
+                    {{ value }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </label>
+            </div>
+            <button type="submit">Run Prediction On Uploaded Image</button>
+          </form>
+          {% if error %}
+          <p class="error">{{ error }}</p>
+          {% endif %}
+        </section>
+
+        <section class="panel image-card">
+          <strong>Camera Mode</strong>
+          <video id="camera-preview" autoplay playsinline muted></video>
+          <canvas id="camera-canvas" hidden></canvas>
+          <div class="camera-actions">
+            <button type="button" id="start-camera">Start Camera</button>
+            <button type="button" class="secondary" id="capture-frame">Take Picture And Predict</button>
+            <button type="button" class="secondary" id="toggle-live">Start Live</button>
           </div>
-          <button type="submit">Run Prediction</button>
-        </form>
-        {% if error %}
-        <p class="error">{{ error }}</p>
-        {% endif %}
+          <div class="status" id="camera-status">
+            Camera is idle. Click "Start Camera" to allow browser access.
+          </div>
+        </section>
       </section>
 
       {% if result_image %}
@@ -206,7 +245,146 @@ HTML_TEMPLATE = """
         </article>
       </section>
       {% endif %}
+
+      <section class="results" id="camera-results" {% if not result_image %}style="display:none"{% endif %}>
+        <article class="panel image-card">
+          <strong>Camera Snapshot</strong>
+          <img id="camera-original" src="{% if original_image %}data:image/jpeg;base64,{{ original_image }}{% endif %}" alt="Camera snapshot">
+        </article>
+        <article class="panel image-card">
+          <strong>Camera Prediction</strong>
+          <img id="camera-prediction" src="{% if result_image %}data:image/jpeg;base64,{{ result_image }}{% endif %}" alt="Camera prediction">
+          <div class="meta">
+            <span class="pill" id="camera-avg">avg confidence: {{ avg_confidence or "-" }}</span>
+            <span class="pill" id="camera-min">min confidence: {{ min_confidence or "-" }}</span>
+            <span class="pill" id="camera-max">max confidence: {{ max_confidence or "-" }}</span>
+          </div>
+        </article>
+      </section>
     </main>
+    <script>
+      const startButton = document.getElementById("start-camera");
+      const captureButton = document.getElementById("capture-frame");
+      const liveButton = document.getElementById("toggle-live");
+      const video = document.getElementById("camera-preview");
+      const canvas = document.getElementById("camera-canvas");
+      const statusText = document.getElementById("camera-status");
+      const checkpointSelect = document.getElementById("checkpoint-select");
+      const thresholdSelect = document.getElementById("confidence-threshold");
+      const resultsSection = document.getElementById("camera-results");
+      const cameraOriginal = document.getElementById("camera-original");
+      const cameraPrediction = document.getElementById("camera-prediction");
+      const cameraAvg = document.getElementById("camera-avg");
+      const cameraMin = document.getElementById("camera-min");
+      const cameraMax = document.getElementById("camera-max");
+
+      let mediaStream = null;
+      let liveInterval = null;
+      let isSending = false;
+
+      async function ensureCamera() {
+        if (mediaStream) {
+          return true;
+        }
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          video.srcObject = mediaStream;
+          statusText.textContent = "Camera ready.";
+          return true;
+        } catch (error) {
+          statusText.textContent = "Could not access camera. Check browser permissions.";
+          return false;
+        }
+      }
+
+      function snapshotDataUrl() {
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        if (!width || !height) {
+          return null;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, width, height);
+        return canvas.toDataURL("image/jpeg", 0.9);
+      }
+
+      async function runPrediction() {
+        if (isSending) {
+          return;
+        }
+        const ready = await ensureCamera();
+        if (!ready) {
+          return;
+        }
+        const imageData = snapshotDataUrl();
+        if (!imageData) {
+          statusText.textContent = "Camera is starting. Try again in a second.";
+          return;
+        }
+
+        isSending = true;
+        statusText.textContent = liveInterval ? "Running live prediction..." : "Running snapshot prediction...";
+
+        try {
+          const response = await fetch("/predict-api", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              image_data: imageData,
+              checkpoint: checkpointSelect.value,
+              confidence_threshold: thresholdSelect.value
+            })
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            statusText.textContent = payload.error || "Prediction failed.";
+            return;
+          }
+
+          resultsSection.style.display = "grid";
+          cameraOriginal.src = payload.original_image;
+          cameraPrediction.src = payload.result_image;
+          cameraAvg.textContent = `avg confidence: ${payload.avg_confidence}`;
+          cameraMin.textContent = `min confidence: ${payload.min_confidence}`;
+          cameraMax.textContent = `max confidence: ${payload.max_confidence}`;
+          statusText.textContent = liveInterval ? "Live prediction running." : "Snapshot prediction complete.";
+        } catch (error) {
+          statusText.textContent = "Prediction request failed.";
+        } finally {
+          isSending = false;
+        }
+      }
+
+      startButton.addEventListener("click", async () => {
+        await ensureCamera();
+      });
+
+      captureButton.addEventListener("click", async () => {
+        await runPrediction();
+      });
+
+      liveButton.addEventListener("click", async () => {
+        if (liveInterval) {
+          clearInterval(liveInterval);
+          liveInterval = null;
+          liveButton.textContent = "Start Live";
+          statusText.textContent = "Live prediction stopped.";
+          return;
+        }
+
+        const ready = await ensureCamera();
+        if (!ready) {
+          return;
+        }
+
+        liveButton.textContent = "Stop Live";
+        statusText.textContent = "Live prediction starting...";
+        liveInterval = setInterval(runPrediction, 700);
+        runPrediction();
+      });
+    </script>
   </body>
 </html>
 """
@@ -296,6 +474,47 @@ def draw_prediction(
     return canvas
 
 
+def run_inference_on_bgr_image(
+    image_bgr: np.ndarray,
+    checkpoint_path: Path,
+    confidence_threshold: float,
+    registry: CheckpointRegistry,
+    device: torch.device,
+) -> dict[str, str]:
+    checkpoint, model, connections = registry.load(checkpoint_path)
+    image_size = int(checkpoint.get("image_size", 224))
+
+    input_tensor = preprocess_image(image_bgr, image_size).to(device)
+    with torch.no_grad():
+        predicted_heatmaps = model(input_tensor)
+        predicted_landmarks = decode_heatmaps(
+            predicted_heatmaps.cpu(),
+            image_size=image_size,
+        )[0].numpy()
+        confidences = heatmap_confidences(predicted_heatmaps.cpu())
+
+    predicted_landmarks = upscale_landmarks(
+        predicted_landmarks,
+        source_size=image_size,
+        target_hw=image_bgr.shape[:2],
+    )
+    preview_bgr = draw_prediction(
+        image_bgr,
+        predicted_landmarks,
+        connections,
+        confidences,
+        confidence_threshold=confidence_threshold,
+    )
+
+    return {
+        "original_image": f"data:image/jpeg;base64,{encode_image(image_bgr)}",
+        "result_image": f"data:image/jpeg;base64,{encode_image(preview_bgr)}",
+        "avg_confidence": f"{float(confidences.mean()):.3f}",
+        "min_confidence": f"{float(confidences.min()):.3f}",
+        "max_confidence": f"{float(confidences.max()):.3f}",
+    }
+
+
 class CheckpointRegistry:
     def __init__(self, device: torch.device) -> None:
         self.device = device
@@ -352,37 +571,19 @@ def create_app(default_checkpoint: Path) -> Flask:
                     error = "Could not read the uploaded image."
                 else:
                     checkpoint_path = checkpoint_map[selected_checkpoint]
-                    checkpoint, model, connections = registry.load(checkpoint_path)
-                    image_size = int(checkpoint.get("image_size", 224))
                     confidence_threshold = float(selected_threshold)
-
-                    input_tensor = preprocess_image(image_bgr, image_size).to(device)
-                    with torch.no_grad():
-                        predicted_heatmaps = model(input_tensor)
-                        predicted_landmarks = decode_heatmaps(
-                            predicted_heatmaps.cpu(),
-                            image_size=image_size,
-                        )[0].numpy()
-                        confidences = heatmap_confidences(predicted_heatmaps.cpu())
-
-                    predicted_landmarks = upscale_landmarks(
-                        predicted_landmarks,
-                        source_size=image_size,
-                        target_hw=image_bgr.shape[:2],
-                    )
-                    preview_bgr = draw_prediction(
-                        image_bgr,
-                        predicted_landmarks,
-                        connections,
-                        confidences,
+                    result_payload = run_inference_on_bgr_image(
+                        image_bgr=image_bgr,
+                        checkpoint_path=checkpoint_path,
                         confidence_threshold=confidence_threshold,
+                        registry=registry,
+                        device=device,
                     )
-
-                    original_image = encode_image(image_bgr)
-                    result_image = encode_image(preview_bgr)
-                    avg_confidence = f"{float(confidences.mean()):.3f}"
-                    min_confidence = f"{float(confidences.min()):.3f}"
-                    max_confidence = f"{float(confidences.max()):.3f}"
+                    original_image = result_payload["original_image"].split(",", 1)[1]
+                    result_image = result_payload["result_image"].split(",", 1)[1]
+                    avg_confidence = result_payload["avg_confidence"]
+                    min_confidence = result_payload["min_confidence"]
+                    max_confidence = result_payload["max_confidence"]
 
         return render_template_string(
             HTML_TEMPLATE,
@@ -396,6 +597,37 @@ def create_app(default_checkpoint: Path) -> Flask:
             min_confidence=min_confidence,
             max_confidence=max_confidence,
         )
+
+    @app.route("/predict-api", methods=["POST"])
+    def predict_api():
+        payload = request.get_json(silent=True) or {}
+        image_data = payload.get("image_data")
+        checkpoint_name = payload.get("checkpoint")
+        threshold_value = payload.get("confidence_threshold", "0.25")
+
+        if not image_data:
+            return jsonify({"error": "Missing image data."}), 400
+        if checkpoint_name not in checkpoint_map:
+            return jsonify({"error": "Checkpoint does not exist."}), 400
+
+        try:
+            _, encoded_part = image_data.split(",", 1)
+            image_bytes = base64.b64decode(encoded_part)
+            image_array = np.frombuffer(image_bytes, dtype=np.uint8)
+            image_bgr = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+            if image_bgr is None:
+                raise ValueError("Uploaded camera frame could not be decoded.")
+
+            result_payload = run_inference_on_bgr_image(
+                image_bgr=image_bgr,
+                checkpoint_path=checkpoint_map[checkpoint_name],
+                confidence_threshold=float(threshold_value),
+                registry=registry,
+                device=device,
+            )
+            return jsonify(result_payload)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
 
     return app
 
