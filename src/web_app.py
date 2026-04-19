@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib
 from pathlib import Path
 
 import cv2
@@ -9,8 +10,13 @@ import numpy as np
 import torch
 from flask import Flask, jsonify, render_template_string, request
 
-from dataset import decode_heatmaps, infer_connections
+from dataset import DEFAULT_LANDMARK_INDICES, decode_heatmaps, infer_connections
 from model import create_heatmap_model
+
+try:
+    import mediapipe as mp
+except ImportError:
+    mp = None
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -500,6 +506,17 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=MODEL_DIR / "landmark_heatmap11_augstrong20k.pt",
     )
+    parser.add_argument(
+        "--disable-mediapipe",
+        action="store_true",
+        help="Skru av MediaPipe-handdeteksjon og bruk hele bildet direkte.",
+    )
+    parser.add_argument(
+        "--mediapipe-padding",
+        type=float,
+        default=0.25,
+        help="Ekstra padding rundt hand-boksen fra MediaPipe.",
+    )
     return parser.parse_args()
 
 
@@ -538,6 +555,77 @@ def upscale_landmarks(
 def heatmap_confidences(heatmaps: torch.Tensor) -> np.ndarray:
     flattened = heatmaps.view(heatmaps.shape[0], heatmaps.shape[1], -1)
     return flattened.amax(dim=-1)[0].cpu().numpy()
+
+
+def create_mediapipe_hands_detector():
+    if mp is None:
+        return None
+
+    detector_kwargs = {
+        "static_image_mode": False,
+        "max_num_hands": 1,
+        "min_detection_confidence": 0.5,
+        "min_tracking_confidence": 0.5,
+    }
+
+    hands_factory = None
+    solutions = getattr(mp, "solutions", None)
+    if solutions is not None:
+        hands_module = getattr(solutions, "hands", None)
+        if hands_module is not None:
+            hands_factory = getattr(hands_module, "Hands", None)
+
+    if hands_factory is None:
+        try:
+            hands_module = importlib.import_module("mediapipe.python.solutions.hands")
+            hands_factory = getattr(hands_module, "Hands", None)
+        except Exception:
+            hands_factory = None
+
+    if hands_factory is None:
+        print("MediaPipe is installed, but the Hands API is unavailable. Web app will use full-frame inference.")
+        return None
+
+    try:
+        return hands_factory(**detector_kwargs)
+    except Exception as exc:
+        print(f"Failed to initialize MediaPipe Hands ({exc}). Web app will use full-frame inference.")
+        return None
+
+
+def compute_roi_from_mediapipe(
+    image_bgr: np.ndarray,
+    hands_detector,
+    padding_ratio: float,
+) -> tuple[int, int, int, int] | None:
+    image_h, image_w = image_bgr.shape[:2]
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    result = hands_detector.process(image_rgb)
+    if not result.multi_hand_landmarks:
+        return None
+
+    hand_landmarks = result.multi_hand_landmarks[0]
+    xs = np.array([landmark.x * image_w for landmark in hand_landmarks.landmark], dtype=np.float32)
+    ys = np.array([landmark.y * image_h for landmark in hand_landmarks.landmark], dtype=np.float32)
+
+    min_x = float(xs.min())
+    max_x = float(xs.max())
+    min_y = float(ys.min())
+    max_y = float(ys.max())
+
+    center_x = (min_x + max_x) / 2.0
+    center_y = (min_y + max_y) / 2.0
+    box_size = max(max_x - min_x, max_y - min_y)
+    half_size = max(24.0, box_size * (0.5 + padding_ratio))
+
+    x1 = max(0, int(np.floor(center_x - half_size)))
+    y1 = max(0, int(np.floor(center_y - half_size)))
+    x2 = min(image_w, int(np.ceil(center_x + half_size)))
+    y2 = min(image_h, int(np.ceil(center_y + half_size)))
+
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return x1, y1, x2, y2
 
 
 def draw_prediction(
@@ -581,11 +669,25 @@ def run_inference_on_bgr_image(
     confidence_threshold: float,
     registry: CheckpointRegistry,
     device: torch.device,
+    hands_detector=None,
+    mediapipe_padding: float = 0.25,
 ) -> dict[str, str]:
     checkpoint, model, connections = registry.load(checkpoint_path)
     image_size = int(checkpoint.get("image_size", 224))
 
-    input_tensor = preprocess_image(image_bgr, image_size).to(device)
+    roi = None
+    image_for_model = image_bgr
+    if hands_detector is not None:
+        roi = compute_roi_from_mediapipe(
+            image_bgr,
+            hands_detector=hands_detector,
+            padding_ratio=mediapipe_padding,
+        )
+        if roi is not None:
+            x1, y1, x2, y2 = roi
+            image_for_model = image_bgr[y1:y2, x1:x2]
+
+    input_tensor = preprocess_image(image_for_model, image_size).to(device)
     with torch.no_grad():
         predicted_heatmaps = model(input_tensor)
         predicted_landmarks = decode_heatmaps(
@@ -597,8 +699,12 @@ def run_inference_on_bgr_image(
     predicted_landmarks = upscale_landmarks(
         predicted_landmarks,
         source_size=image_size,
-        target_hw=image_bgr.shape[:2],
+        target_hw=image_for_model.shape[:2],
     )
+    if roi is not None:
+        predicted_landmarks[:, 0] += x1
+        predicted_landmarks[:, 1] += y1
+
     preview_bgr = draw_prediction(
         image_bgr,
         predicted_landmarks,
@@ -606,6 +712,8 @@ def run_inference_on_bgr_image(
         confidences,
         confidence_threshold=confidence_threshold,
     )
+    if roi is not None:
+        cv2.rectangle(preview_bgr, (x1, y1), (x2, y2), (255, 210, 80), 2)
 
     return {
         "original_image": f"data:image/jpeg;base64,{encode_image(image_bgr)}",
@@ -627,16 +735,25 @@ class CheckpointRegistry:
             model = create_heatmap_model(num_landmarks=checkpoint["num_landmarks"]).to(self.device)
             model.load_state_dict(checkpoint["model_state_dict"])
             model.eval()
-            connections = infer_connections(checkpoint.get("selected_landmark_indices"))
+            selected_landmark_indices = checkpoint.get(
+                "selected_landmark_indices",
+                list(DEFAULT_LANDMARK_INDICES),
+            )
+            connections = infer_connections(selected_landmark_indices)
             self.cache[checkpoint_path] = (checkpoint, model, connections)
         return self.cache[checkpoint_path]
 
 
-def create_app(default_checkpoint: Path) -> Flask:
+def create_app(
+    default_checkpoint: Path,
+    use_mediapipe: bool = True,
+    mediapipe_padding: float = 0.25,
+) -> Flask:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint_paths = available_checkpoints()
     checkpoint_map = {path.name: path for path in checkpoint_paths}
     registry = CheckpointRegistry(device)
+    hands_detector = create_mediapipe_hands_detector() if use_mediapipe else None
 
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
@@ -679,6 +796,8 @@ def create_app(default_checkpoint: Path) -> Flask:
                         confidence_threshold=confidence_threshold,
                         registry=registry,
                         device=device,
+                        hands_detector=hands_detector,
+                        mediapipe_padding=mediapipe_padding,
                     )
                     original_image = result_payload["original_image"].split(",", 1)[1]
                     result_image = result_payload["result_image"].split(",", 1)[1]
@@ -725,6 +844,8 @@ def create_app(default_checkpoint: Path) -> Flask:
                 confidence_threshold=float(threshold_value),
                 registry=registry,
                 device=device,
+                hands_detector=hands_detector,
+                mediapipe_padding=mediapipe_padding,
             )
             return jsonify(result_payload)
         except Exception as exc:
@@ -735,7 +856,11 @@ def create_app(default_checkpoint: Path) -> Flask:
 
 def main() -> None:
     args = parse_args()
-    app = create_app(args.default_checkpoint)
+    app = create_app(
+        args.default_checkpoint,
+        use_mediapipe=not args.disable_mediapipe,
+        mediapipe_padding=args.mediapipe_padding,
+    )
     app.run(host=args.host, port=args.port, debug=False)
 
 
