@@ -27,6 +27,7 @@ HTML_TEMPLATE = """
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Hand Landmark Demo</title>
     <style>
       :root {
@@ -252,82 +253,278 @@ HTML_TEMPLATE = """
         border-radius: 16px;
         pointer-events: none;
       }
+      /* Modern demo layout override: live camera is the primary interaction. */
+      :root {
+        --bg: #f5f3ee;
+        --bg-deep: #ebe7df;
+        --panel: rgba(255, 255, 255, 0.82);
+        --ink: #171717;
+        --muted: #66707a;
+        --accent: #0b6b5b;
+        --accent-soft: #dcefe9;
+        --accent-warm: #b86031;
+        --border: rgba(23, 23, 23, 0.10);
+        --shadow: 0 24px 70px rgba(20, 24, 28, 0.10);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: "Aptos Display", "Segoe UI Variable", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 10% 0%, rgba(11, 107, 91, 0.14), transparent 32%),
+          radial-gradient(circle at 88% 10%, rgba(184, 96, 49, 0.10), transparent 28%),
+          linear-gradient(180deg, #fbfaf7, var(--bg));
+      }
+      .page {
+        max-width: 1240px;
+        padding-top: 24px;
+      }
+      .hero {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 22px;
+        padding: 8px 2px 12px;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+      h1 {
+        font-size: clamp(2.4rem, 6vw, 5.8rem);
+        line-height: 0.88;
+        letter-spacing: -0.07em;
+        max-width: 11ch;
+      }
+      .lead {
+        max-width: 560px;
+        margin-top: 14px;
+        font-size: 1rem;
+      }
+      .hero-meta {
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .hero-pill {
+        background: rgba(255, 255, 255, 0.76);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.86rem;
+        letter-spacing: 0.01em;
+      }
+      .panel {
+        border-radius: 28px;
+        padding: 18px;
+        backdrop-filter: blur(18px);
+      }
+      .split {
+        grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.7fr);
+        align-items: stretch;
+      }
+      .split > .image-card {
+        order: -1;
+      }
+      .split > .image-card.panel {
+        background: rgba(13, 17, 16, 0.94);
+        color: white;
+      }
+      .split > .image-card .section-copy {
+        color: rgba(255, 255, 255, 0.68);
+      }
+      .split > .image-card .section-kicker {
+        color: #94e3d1;
+      }
+      .camera-frame {
+        overflow: hidden;
+        border-radius: 22px;
+        background: #0d1110;
+        min-height: 460px;
+      }
+      .camera-frame video {
+        width: 100%;
+        height: 100%;
+        min-height: 460px;
+        object-fit: cover;
+        display: block;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      .camera-actions {
+        margin-top: 4px;
+      }
+      .camera-actions button {
+        flex: 1 1 160px;
+      }
+      input[type="file"], select {
+        width: 100%;
+        border-radius: 16px;
+        border-color: var(--border);
+        background: rgba(255, 255, 255, 0.92);
+      }
+      button {
+        padding: 13px 18px;
+        font-weight: 800;
+        background: linear-gradient(135deg, var(--accent), #084b41);
+      }
+      .secondary {
+        background: rgba(255, 255, 255, 0.92);
+      }
+      .status {
+        margin-top: 8px;
+        border-radius: 16px;
+      }
+      .results {
+        margin-top: 18px;
+      }
+      .section-title {
+        letter-spacing: -0.03em;
+      }
+      .live-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+      .live-results {
+        display: grid;
+        gap: 18px;
+      }
+      .live-results .panel {
+        min-height: 0;
+      }
+      .live-results .image-card img {
+        max-height: 310px;
+        object-fit: contain;
+      }
+      .live-placeholder {
+        min-height: 250px;
+        display: grid;
+        place-items: center;
+        border-radius: 18px;
+        border: 1px dashed var(--border);
+        color: var(--muted);
+        text-align: center;
+        padding: 22px;
+        background: rgba(255, 255, 255, 0.58);
+      }
+      @media (max-width: 960px) {
+        .hero {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        .hero-meta {
+          justify-content: flex-start;
+        }
+        .split {
+          grid-template-columns: 1fr;
+        }
+        .live-grid {
+          grid-template-columns: 1fr;
+        }
+        .camera-frame, .camera-frame video {
+          min-height: 320px;
+        }
+      }
     </style>
   </head>
   <body>
     <main class="page">
       <section class="hero">
         <div class="hero-meta">
-          <span class="hero-pill">Heatmap CNN</span>
-          <span class="hero-pill">11 Landmarks</span>
-          <span class="hero-pill">Image + Live Demo</span>
+          <span class="hero-pill">11 landmarks</span>
+          <span class="hero-pill">MediaPipe ROI</span>
+          <span class="hero-pill">Live camera</span>
         </div>
-        <h1>Hand Landmark Demo</h1>
+        <h1>Live Hand Tracking</h1>
         <div class="lead">
-          Explore the project in a cleaner way than the raw terminal workflow. You can upload an unseen image,
-          take a single webcam snapshot, or run a lightweight live demo that repeatedly sends frames to the backend.
+          Start the webcam to run the trained heatmap model on live hand input. You can also capture a single
+          camera frame or upload an image for controlled testing.
         </div>
       </section>
 
-      <section class="split">
-        <section class="panel">
-          <div class="section-kicker">Static Prediction</div>
-          <h2 class="section-title">Upload An Image</h2>
-          <p class="section-copy">
-            Test any still image with one of the saved checkpoints and inspect the predicted landmarks.
-          </p>
-          <form method="post" enctype="multipart/form-data">
-            <div class="grid">
-              <label>
-                Image
-                <input type="file" name="image" accept=".jpg,.jpeg,.png,.bmp,.webp" required>
-              </label>
-              <label>
-                Checkpoint
-                <select name="checkpoint" id="checkpoint-select">
-                  {% for checkpoint_name in checkpoint_names %}
-                  <option value="{{ checkpoint_name }}" {% if checkpoint_name == selected_checkpoint %}selected{% endif %}>
-                    {{ checkpoint_name }}
-                  </option>
-                  {% endfor %}
-                </select>
-              </label>
-              <label>
-                Confidence Threshold
-                <select name="confidence_threshold" id="confidence-threshold">
-                  {% for value in ["0.15", "0.20", "0.25", "0.30"] %}
-                  <option value="{{ value }}" {% if value == selected_threshold %}selected{% endif %}>
-                    {{ value }}
-                  </option>
-                  {% endfor %}
-                </select>
-              </label>
+      <section class="live-grid">
+        <section class="split">
+          <section class="panel">
+            <div class="section-kicker">Model And Image Test</div>
+            <h2 class="section-title">Choose model and test an image</h2>
+            <p class="section-copy">
+              The selected checkpoint and threshold are used for live camera, snapshots, and uploaded images.
+            </p>
+            <form method="post" enctype="multipart/form-data">
+              <div class="grid">
+                <label>
+                  Image
+                  <input type="file" name="image" accept=".jpg,.jpeg,.png,.bmp,.webp" required>
+                </label>
+                <label>
+                  Checkpoint
+                  <select name="checkpoint" id="checkpoint-select">
+                    {% for checkpoint_name in checkpoint_names %}
+                    <option value="{{ checkpoint_name }}" {% if checkpoint_name == selected_checkpoint %}selected{% endif %}>
+                      {{ checkpoint_name }}
+                    </option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  Confidence threshold
+                  <select name="confidence_threshold" id="confidence-threshold">
+                    {% for value in ["0.10", "0.15", "0.20", "0.25", "0.30", "0.35"] %}
+                    <option value="{{ value }}" {% if value == selected_threshold %}selected{% endif %}>
+                      {{ value }}
+                    </option>
+                    {% endfor %}
+                  </select>
+                </label>
+              </div>
+              <button type="submit">Predict uploaded image</button>
+            </form>
+            {% if error %}
+            <p class="error">{{ error }}</p>
+            {% endif %}
+          </section>
+
+          <section class="panel image-card">
+            <div class="section-kicker">Primary Demo</div>
+            <h2 class="section-title">Use your webcam live</h2>
+            <p class="section-copy">
+              Give the browser access to your camera, then run live prediction or capture one frame for a still result.
+            </p>
+            <div class="camera-frame">
+              <video id="camera-preview" autoplay playsinline muted></video>
             </div>
-            <button type="submit">Run Prediction On Uploaded Image</button>
-          </form>
-          {% if error %}
-          <p class="error">{{ error }}</p>
-          {% endif %}
+            <canvas id="camera-canvas" hidden></canvas>
+            <div class="camera-actions">
+              <button type="button" id="start-camera">Start camera</button>
+              <button type="button" class="secondary" id="capture-frame">Take picture</button>
+              <button type="button" class="secondary" id="toggle-live">Start live</button>
+            </div>
+            <div class="status" id="camera-status">
+              Camera is idle. Click "Start camera" to allow browser access.
+            </div>
+          </section>
         </section>
 
-        <section class="panel image-card">
-          <div class="section-kicker">Camera Prediction</div>
-          <h2 class="section-title">Use Your Webcam</h2>
-          <p class="section-copy">
-            Give the browser access to your camera, then either capture a single frame or let the app run repeated predictions.
-          </p>
-          <div class="camera-frame">
-            <video id="camera-preview" autoplay playsinline muted></video>
-          </div>
-          <canvas id="camera-canvas" hidden></canvas>
-          <div class="camera-actions">
-            <button type="button" id="start-camera">Start Camera</button>
-            <button type="button" class="secondary" id="capture-frame">Take Picture And Predict</button>
-            <button type="button" class="secondary" id="toggle-live">Start Live</button>
-          </div>
-          <div class="status" id="camera-status">
-            Camera is idle. Click "Start Camera" to allow browser access.
-          </div>
+        <section class="live-results" id="camera-results">
+          <article class="panel image-card">
+            <div class="section-kicker">Live Output</div>
+            <strong>Model prediction</strong>
+            <img id="camera-prediction" src="{% if result_image %}data:image/jpeg;base64,{{ result_image }}{% endif %}" alt="Camera prediction">
+            <div class="live-placeholder" id="camera-placeholder" {% if result_image %}style="display:none"{% endif %}>
+              Start live prediction to see the landmark overlay here.
+            </div>
+            <div class="meta">
+              <span class="pill" id="camera-avg">avg confidence: {{ avg_confidence or "-" }}</span>
+              <span class="pill" id="camera-min">min confidence: {{ min_confidence or "-" }}</span>
+              <span class="pill" id="camera-max">max confidence: {{ max_confidence or "-" }}</span>
+            </div>
+          </article>
+          <article class="panel image-card">
+            <div class="section-kicker">Camera Snapshot</div>
+            <strong>Input frame</strong>
+            <img id="camera-original" src="{% if original_image %}data:image/jpeg;base64,{{ original_image }}{% endif %}" alt="Camera snapshot">
+          </article>
         </section>
       </section>
 
@@ -351,23 +548,6 @@ HTML_TEMPLATE = """
       </section>
       {% endif %}
 
-      <section class="results" id="camera-results" {% if not result_image %}style="display:none"{% endif %}>
-        <article class="panel image-card">
-          <div class="section-kicker">Snapshot</div>
-          <strong>Camera Frame</strong>
-          <img id="camera-original" src="{% if original_image %}data:image/jpeg;base64,{{ original_image }}{% endif %}" alt="Camera snapshot">
-        </article>
-        <article class="panel image-card">
-          <div class="section-kicker">Live Output</div>
-          <strong>Camera Prediction</strong>
-          <img id="camera-prediction" src="{% if result_image %}data:image/jpeg;base64,{{ result_image }}{% endif %}" alt="Camera prediction">
-          <div class="meta">
-            <span class="pill" id="camera-avg">avg confidence: {{ avg_confidence or "-" }}</span>
-            <span class="pill" id="camera-min">min confidence: {{ min_confidence or "-" }}</span>
-            <span class="pill" id="camera-max">max confidence: {{ max_confidence or "-" }}</span>
-          </div>
-        </article>
-      </section>
     </main>
     <script>
       const startButton = document.getElementById("start-camera");
@@ -384,6 +564,7 @@ HTML_TEMPLATE = """
       const cameraAvg = document.getElementById("camera-avg");
       const cameraMin = document.getElementById("camera-min");
       const cameraMax = document.getElementById("camera-max");
+      const cameraPlaceholder = document.getElementById("camera-placeholder");
 
       let mediaStream = null;
       let liveInterval = null;
@@ -453,6 +634,10 @@ HTML_TEMPLATE = """
           resultsSection.style.display = "grid";
           cameraOriginal.src = payload.original_image;
           cameraPrediction.src = payload.result_image;
+          cameraPrediction.style.display = "block";
+          if (cameraPlaceholder) {
+            cameraPlaceholder.style.display = "none";
+          }
           cameraAvg.textContent = `avg confidence: ${payload.avg_confidence}`;
           cameraMin.textContent = `min confidence: ${payload.min_confidence}`;
           cameraMax.textContent = `max confidence: ${payload.max_confidence}`;
