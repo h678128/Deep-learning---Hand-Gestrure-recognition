@@ -682,6 +682,583 @@ HTML_TEMPLATE = """
 """
 
 
+HTML_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Live Hand Tracking</title>
+    <style>
+      :root {
+        --bg: #f6f4ee;
+        --surface: rgba(255, 255, 255, 0.82);
+        --surface-strong: #ffffff;
+        --ink: #151716;
+        --muted: #687178;
+        --line: rgba(21, 23, 22, 0.10);
+        --accent: #0b6b5b;
+        --accent-dark: #07483e;
+        --accent-soft: #dcefe9;
+        --warm: #b85f33;
+        --shadow: 0 24px 70px rgba(24, 31, 35, 0.12);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family: "Aptos Display", "Segoe UI Variable", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 12% 0%, rgba(11, 107, 91, 0.16), transparent 30%),
+          radial-gradient(circle at 88% 8%, rgba(184, 95, 51, 0.11), transparent 28%),
+          linear-gradient(180deg, #fbfaf7 0%, var(--bg) 100%);
+      }
+      button, input, select {
+        font: inherit;
+      }
+      .page {
+        width: min(1480px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 20px 0 40px;
+      }
+      .topbar {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 16px;
+      }
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--warm);
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+      }
+      h1 {
+        max-width: 680px;
+        margin: 0;
+        font-size: clamp(2.2rem, 5vw, 5.2rem);
+        line-height: 0.88;
+        letter-spacing: -0.07em;
+      }
+      .lead {
+        max-width: 520px;
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+      .badges {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .badge, .metric {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 8px 11px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.86rem;
+        font-weight: 760;
+      }
+      .app-shell {
+        display: grid;
+        grid-template-columns: minmax(250px, 320px) minmax(360px, 1.15fr) minmax(360px, 1fr);
+        gap: 16px;
+        align-items: stretch;
+      }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+      .controls {
+        display: grid;
+        align-content: start;
+        gap: 14px;
+        padding: 18px;
+      }
+      .panel-title {
+        margin: 0;
+        font-size: 1.35rem;
+        line-height: 1.1;
+        letter-spacing: -0.04em;
+      }
+      .panel-copy {
+        margin: 7px 0 2px;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.48;
+      }
+      label {
+        display: grid;
+        gap: 7px;
+        color: #323737;
+        font-size: 0.88rem;
+        font-weight: 760;
+      }
+      select, input[type="file"] {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        background: rgba(255, 255, 255, 0.9);
+        color: var(--ink);
+        padding: 10px 12px;
+      }
+      button {
+        min-height: 44px;
+        border: 0;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+        color: white;
+        font-weight: 850;
+        cursor: pointer;
+        box-shadow: 0 14px 30px rgba(11, 107, 91, 0.24);
+        transition: transform 130ms ease, box-shadow 130ms ease;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 18px 34px rgba(11, 107, 91, 0.30);
+      }
+      .secondary {
+        background: var(--surface-strong);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        box-shadow: none;
+      }
+      .button-stack {
+        display: grid;
+        gap: 10px;
+      }
+      .button-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .status {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.62);
+        color: var(--muted);
+        padding: 12px;
+        font-size: 0.91rem;
+        line-height: 1.4;
+      }
+      .camera-panel, .prediction-panel {
+        overflow: hidden;
+        background: #0d1110;
+      }
+      .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 14px 16px;
+        color: white;
+      }
+      .panel-header strong {
+        font-size: 0.96rem;
+      }
+      .small-note {
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.82rem;
+      }
+      .camera-frame, .prediction-frame {
+        position: relative;
+        aspect-ratio: 4 / 3;
+        min-height: 420px;
+        background: #111614;
+      }
+      .camera-frame video, .prediction-frame img {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: contain;
+      }
+      .camera-frame video {
+        object-fit: cover;
+      }
+      .frame-guide {
+        position: absolute;
+        inset: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 18px;
+        pointer-events: none;
+      }
+      .empty-state {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        color: rgba(255, 255, 255, 0.66);
+        text-align: center;
+        line-height: 1.45;
+      }
+      .metrics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 16px 16px;
+      }
+      .metric {
+        background: rgba(255, 255, 255, 0.10);
+        border-color: rgba(255, 255, 255, 0.14);
+        color: rgba(255, 255, 255, 0.78);
+      }
+      .toolbox {
+        display: grid;
+        grid-template-columns: minmax(260px, 0.7fr) minmax(360px, 1.3fr);
+        gap: 16px;
+        margin-top: 16px;
+      }
+      .upload-card, .upload-result {
+        padding: 18px;
+      }
+      .upload-form {
+        display: grid;
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .upload-result-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .upload-result img {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #eef0ee;
+      }
+      .light-metrics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .light-metrics .metric {
+        background: var(--accent-soft);
+        border-color: transparent;
+        color: var(--accent-dark);
+      }
+      .error {
+        margin: 12px 0 0;
+        color: #9a2424;
+        font-weight: 800;
+      }
+      @media (max-width: 1180px) {
+        .app-shell, .toolbox {
+          grid-template-columns: 1fr;
+        }
+        .camera-frame, .prediction-frame {
+          min-height: 320px;
+        }
+        .topbar {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        .badges {
+          justify-content: flex-start;
+        }
+      }
+      @media (max-width: 680px) {
+        .page {
+          width: min(100vw - 20px, 1480px);
+          padding-top: 12px;
+        }
+        .upload-result-grid, .button-row {
+          grid-template-columns: 1fr;
+        }
+        h1 {
+          font-size: clamp(2rem, 18vw, 3.5rem);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Deep learning hand tracking</p>
+          <h1>Live hand landmark demo</h1>
+        </div>
+        <div>
+          <p class="lead">
+            Use the webcam as the primary demo, switch checkpoints quickly, then capture a frame or upload an image for controlled testing.
+          </p>
+          <div class="badges">
+            <span class="badge">11 landmarks</span>
+            <span class="badge">MediaPipe crop</span>
+            <span class="badge">PyTorch backend</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="app-shell">
+        <aside class="panel controls">
+          <div>
+            <p class="eyebrow">Controls</p>
+            <h2 class="panel-title">Run the model</h2>
+            <p class="panel-copy">These settings are shared by live prediction, snapshot prediction, and image upload.</p>
+          </div>
+          <label>
+            Model checkpoint
+            <select name="checkpoint" id="checkpoint-select">
+              {% for checkpoint_name in checkpoint_names %}
+              <option value="{{ checkpoint_name }}" {% if checkpoint_name == selected_checkpoint %}selected{% endif %}>
+                {{ checkpoint_name }}
+              </option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            Confidence threshold
+            <select name="confidence_threshold" id="confidence-threshold">
+              {% for value in ["0.10", "0.15", "0.20", "0.25", "0.30", "0.35"] %}
+              <option value="{{ value }}" {% if value == selected_threshold %}selected{% endif %}>
+                {{ value }}
+              </option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="button-stack">
+            <button type="button" id="start-camera">Start camera</button>
+            <div class="button-row">
+              <button type="button" class="secondary" id="capture-frame">Take picture</button>
+              <button type="button" class="secondary" id="toggle-live">Start live</button>
+            </div>
+          </div>
+          <div class="status" id="camera-status">Camera is idle. Start the camera to allow browser access.</div>
+        </aside>
+
+        <section class="panel camera-panel">
+          <div class="panel-header">
+            <strong>Webcam input</strong>
+            <span class="small-note">local camera feed</span>
+          </div>
+          <div class="camera-frame">
+            <video id="camera-preview" autoplay playsinline muted></video>
+            <canvas id="camera-canvas" hidden></canvas>
+            <div class="frame-guide"></div>
+          </div>
+        </section>
+
+        <section class="panel prediction-panel" id="camera-results">
+          <div class="panel-header">
+            <strong>Live prediction</strong>
+            <span class="small-note">model overlay</span>
+          </div>
+          <div class="prediction-frame">
+            <img id="camera-prediction" src="{% if result_image %}data:image/jpeg;base64,{{ result_image }}{% endif %}" alt="Camera prediction" {% if not result_image %}style="display:none"{% endif %}>
+            <div class="empty-state" id="camera-placeholder" {% if result_image %}style="display:none"{% endif %}>
+              Start live prediction to see landmarks beside the camera feed.
+            </div>
+          </div>
+          <div class="metrics">
+            <span class="metric" id="camera-avg">avg confidence: {{ avg_confidence or "-" }}</span>
+            <span class="metric" id="camera-min">min confidence: {{ min_confidence or "-" }}</span>
+            <span class="metric" id="camera-max">max confidence: {{ max_confidence or "-" }}</span>
+          </div>
+        </section>
+      </section>
+
+      <section class="toolbox">
+        <section class="panel upload-card">
+          <p class="eyebrow">Still image test</p>
+          <h2 class="panel-title">Upload an image</h2>
+          <p class="panel-copy">Use this for report screenshots or quick checks on saved webcam frames.</p>
+          <form method="post" enctype="multipart/form-data" class="upload-form" id="upload-form">
+            <input type="hidden" name="checkpoint" id="upload-checkpoint" value="{{ selected_checkpoint }}">
+            <input type="hidden" name="confidence_threshold" id="upload-threshold" value="{{ selected_threshold }}">
+            <label>
+              Image file
+              <input type="file" name="image" accept=".jpg,.jpeg,.png,.bmp,.webp" required>
+            </label>
+            <button type="submit">Predict uploaded image</button>
+          </form>
+          {% if error %}
+          <p class="error">{{ error }}</p>
+          {% endif %}
+        </section>
+
+        <section class="panel upload-result">
+          <p class="eyebrow">Latest result</p>
+          {% if result_image %}
+          <div class="upload-result-grid">
+            <div>
+              <strong>Input</strong>
+              <img src="data:image/jpeg;base64,{{ original_image }}" alt="Original image">
+            </div>
+            <div>
+              <strong>Prediction</strong>
+              <img src="data:image/jpeg;base64,{{ result_image }}" alt="Prediction image">
+            </div>
+          </div>
+          <div class="light-metrics">
+            <span class="metric">avg confidence: {{ avg_confidence }}</span>
+            <span class="metric">min confidence: {{ min_confidence }}</span>
+            <span class="metric">max confidence: {{ max_confidence }}</span>
+          </div>
+          {% else %}
+          <p class="panel-copy">No uploaded image result yet. Live output appears above, and upload results appear here.</p>
+          {% endif %}
+        </section>
+      </section>
+    </main>
+
+    <script>
+      const startButton = document.getElementById("start-camera");
+      const captureButton = document.getElementById("capture-frame");
+      const liveButton = document.getElementById("toggle-live");
+      const video = document.getElementById("camera-preview");
+      const canvas = document.getElementById("camera-canvas");
+      const statusText = document.getElementById("camera-status");
+      const checkpointSelect = document.getElementById("checkpoint-select");
+      const thresholdSelect = document.getElementById("confidence-threshold");
+      const cameraOriginal = document.createElement("img");
+      const cameraPrediction = document.getElementById("camera-prediction");
+      const cameraAvg = document.getElementById("camera-avg");
+      const cameraMin = document.getElementById("camera-min");
+      const cameraMax = document.getElementById("camera-max");
+      const cameraPlaceholder = document.getElementById("camera-placeholder");
+      const uploadForm = document.getElementById("upload-form");
+      const uploadCheckpoint = document.getElementById("upload-checkpoint");
+      const uploadThreshold = document.getElementById("upload-threshold");
+
+      let mediaStream = null;
+      let liveInterval = null;
+      let isSending = false;
+
+      async function ensureCamera() {
+        if (mediaStream) {
+          return true;
+        }
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 960 }, height: { ideal: 720 } },
+            audio: false
+          });
+          video.srcObject = mediaStream;
+          statusText.textContent = "Camera ready. Start live prediction or take one picture.";
+          return true;
+        } catch (error) {
+          statusText.textContent = "Could not access camera. Check browser permissions.";
+          return false;
+        }
+      }
+
+      function snapshotDataUrl() {
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        if (!width || !height) {
+          return null;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, width, height);
+        return canvas.toDataURL("image/jpeg", 0.82);
+      }
+
+      async function runPrediction() {
+        if (isSending) {
+          return;
+        }
+        const ready = await ensureCamera();
+        if (!ready) {
+          return;
+        }
+        const imageData = snapshotDataUrl();
+        if (!imageData) {
+          statusText.textContent = "Camera is starting. Try again in a second.";
+          return;
+        }
+
+        isSending = true;
+        statusText.textContent = liveInterval ? "Live prediction running..." : "Running snapshot prediction...";
+
+        try {
+          const response = await fetch("/predict-api", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              image_data: imageData,
+              checkpoint: checkpointSelect.value,
+              confidence_threshold: thresholdSelect.value
+            })
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            statusText.textContent = payload.error || "Prediction failed.";
+            return;
+          }
+
+          cameraOriginal.src = payload.original_image;
+          cameraPrediction.src = payload.result_image;
+          cameraPrediction.style.display = "block";
+          cameraPlaceholder.style.display = "none";
+          cameraAvg.textContent = `avg confidence: ${payload.avg_confidence}`;
+          cameraMin.textContent = `min confidence: ${payload.min_confidence}`;
+          cameraMax.textContent = `max confidence: ${payload.max_confidence}`;
+          statusText.textContent = liveInterval ? "Live prediction running." : "Snapshot prediction complete.";
+        } catch (error) {
+          statusText.textContent = "Prediction request failed.";
+        } finally {
+          isSending = false;
+        }
+      }
+
+      startButton.addEventListener("click", async () => {
+        await ensureCamera();
+      });
+
+      captureButton.addEventListener("click", async () => {
+        await runPrediction();
+      });
+
+      liveButton.addEventListener("click", async () => {
+        if (liveInterval) {
+          clearInterval(liveInterval);
+          liveInterval = null;
+          liveButton.textContent = "Start live";
+          statusText.textContent = "Live prediction stopped.";
+          return;
+        }
+
+        const ready = await ensureCamera();
+        if (!ready) {
+          return;
+        }
+
+        liveButton.textContent = "Stop live";
+        statusText.textContent = "Live prediction starting...";
+        liveInterval = setInterval(runPrediction, 550);
+        runPrediction();
+      });
+
+      uploadForm.addEventListener("submit", () => {
+        uploadCheckpoint.value = checkpointSelect.value;
+        uploadThreshold.value = thresholdSelect.value;
+      });
+    </script>
+  </body>
+</html>
+"""
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a small local web app for hand landmark inference.")
     parser.add_argument("--host", default="127.0.0.1")
