@@ -10,7 +10,13 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-from dataset import DEFAULT_LANDMARK_INDICES, FreiHandLandmarkDataset, decode_heatmaps
+from dataset import (
+    DEFAULT_LANDMARK_INDICES,
+    FreiHandLandmarkDataset,
+    MixedHandLandmarkDataset,
+    UltralyticsHandKeypointDataset,
+    decode_heatmaps,
+)
 from model import create_heatmap_model
 
 
@@ -61,6 +67,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Crop rundt haanden basert paa fasit-landmarks.",
     )
+    parser.add_argument(
+        "--data-source",
+        choices=["freihand", "ultralytics", "combined"],
+        default="freihand",
+        help="Velg om treningen bruker FreiHAND, Ultralytics hand-keypoints, eller begge.",
+    )
+    parser.add_argument(
+        "--ultralytics-root",
+        type=Path,
+        default=Path("data") / "hand-keypoints",
+        help="Rotmappe for Ultralytics hand-keypoints datasettet.",
+    )
     return parser.parse_args()
 
 
@@ -85,8 +103,8 @@ def set_seed(seed: int) -> None:
 
 
 def create_dataloaders(
-    train_dataset: FreiHandLandmarkDataset,
-    val_dataset: FreiHandLandmarkDataset,
+    train_dataset: Dataset,
+    val_dataset: Dataset,
     batch_size: int,
     val_ratio: float,
     seed: int,
@@ -128,6 +146,128 @@ def create_dataloaders(
         pin_memory=torch.cuda.is_available(),
     )
     return train_loader, val_loader
+
+
+def create_native_split_dataloaders(
+    train_dataset: Dataset,
+    val_dataset: Dataset,
+    batch_size: int,
+    num_workers: int,
+    max_samples: int | None = None,
+) -> tuple[DataLoader, DataLoader]:
+    if max_samples is not None:
+        train_size = max(1, int(max_samples * 0.9))
+        val_size = max(1, max_samples - train_size)
+        train_indices = list(range(min(train_size, len(train_dataset))))
+        val_indices = list(range(min(val_size, len(val_dataset))))
+        train_dataset = DatasetSubset(train_dataset, train_indices)
+        val_dataset = DatasetSubset(val_dataset, val_indices)
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+    )
+    return train_loader, val_loader
+
+
+def build_freihand_datasets(args: argparse.Namespace) -> tuple[FreiHandLandmarkDataset, FreiHandLandmarkDataset]:
+    train_dataset = FreiHandLandmarkDataset(
+        image_size=args.image_size,
+        heatmap_size=args.heatmap_size,
+        heatmap_sigma=args.heatmap_sigma,
+        normalize=True,
+        return_tensors=True,
+        crop_hand=args.crop_hand,
+        augment=args.augment,
+        augment_strength=args.augment_strength,
+        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
+    )
+    val_dataset = FreiHandLandmarkDataset(
+        image_size=args.image_size,
+        heatmap_size=args.heatmap_size,
+        heatmap_sigma=args.heatmap_sigma,
+        normalize=True,
+        return_tensors=True,
+        crop_hand=args.crop_hand,
+        augment=False,
+        augment_strength=args.augment_strength,
+        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
+    )
+    return train_dataset, val_dataset
+
+
+def build_ultralytics_datasets(args: argparse.Namespace) -> tuple[UltralyticsHandKeypointDataset, UltralyticsHandKeypointDataset]:
+    train_dataset = UltralyticsHandKeypointDataset(
+        root=args.ultralytics_root,
+        split="train",
+        image_size=args.image_size,
+        heatmap_size=args.heatmap_size,
+        heatmap_sigma=args.heatmap_sigma,
+        normalize=True,
+        return_tensors=True,
+        crop_hand=args.crop_hand,
+        augment=args.augment,
+        augment_strength=args.augment_strength,
+        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
+    )
+    val_dataset = UltralyticsHandKeypointDataset(
+        root=args.ultralytics_root,
+        split="val",
+        image_size=args.image_size,
+        heatmap_size=args.heatmap_size,
+        heatmap_sigma=args.heatmap_sigma,
+        normalize=True,
+        return_tensors=True,
+        crop_hand=args.crop_hand,
+        augment=False,
+        augment_strength=args.augment_strength,
+        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
+    )
+    return train_dataset, val_dataset
+
+
+def build_datasets(args: argparse.Namespace) -> tuple[Dataset, Dataset, bool]:
+    if args.data_source == "freihand":
+        train_dataset, val_dataset = build_freihand_datasets(args)
+        return train_dataset, val_dataset, False
+
+    if args.data_source == "ultralytics":
+        train_dataset, val_dataset = build_ultralytics_datasets(args)
+        return train_dataset, val_dataset, True
+
+    freihand_train, freihand_val = build_freihand_datasets(args)
+    ultralytics_train, ultralytics_val = build_ultralytics_datasets(args)
+    train_dataset = MixedHandLandmarkDataset(
+        [freihand_train, ultralytics_train],
+        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
+        image_size=args.image_size,
+        heatmap_size=args.heatmap_size,
+        heatmap_sigma=args.heatmap_sigma,
+        crop_hand=args.crop_hand,
+        augment=args.augment,
+        augment_strength=args.augment_strength,
+    )
+    val_dataset = MixedHandLandmarkDataset(
+        [freihand_val, ultralytics_val],
+        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
+        image_size=args.image_size,
+        heatmap_size=args.heatmap_size,
+        heatmap_sigma=args.heatmap_sigma,
+        crop_hand=args.crop_hand,
+        augment=False,
+        augment_strength=args.augment_strength,
+    )
+    return train_dataset, val_dataset, True
 
 
 def mean_pixel_error(
@@ -187,7 +327,7 @@ def save_checkpoint(
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
     args: argparse.Namespace,
-    dataset: FreiHandLandmarkDataset,
+    dataset: Dataset,
     best_val_loss: float,
     best_epoch: int,
     completed_epochs: int,
@@ -204,6 +344,8 @@ def save_checkpoint(
             "selected_landmark_indices": list(dataset.selected_landmark_indices),
             "crop_hand": dataset.crop_hand,
             "crop_padding": dataset.crop_padding,
+            "data_source": args.data_source,
+            "ultralytics_root": str(args.ultralytics_root),
             "best_val_loss": best_val_loss,
             "best_epoch": best_epoch,
             "completed_epochs": completed_epochs,
@@ -225,6 +367,8 @@ def save_checkpoint(
         "crop_hand": dataset.crop_hand,
         "augment": dataset.augment,
         "augment_strength": dataset.augment_strength,
+        "data_source": args.data_source,
+        "ultralytics_root": str(args.ultralytics_root),
         "best_val_loss": best_val_loss,
         "best_epoch": best_epoch,
         "completed_epochs": completed_epochs,
@@ -241,7 +385,7 @@ def load_resume_checkpoint(
     resume_path: Path,
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
-    dataset: FreiHandLandmarkDataset,
+    dataset: Dataset,
     device: torch.device,
 ) -> tuple[float, int, int]:
     checkpoint = torch.load(resume_path, map_location=device)
@@ -273,37 +417,25 @@ def main() -> None:
     set_seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_dataset = FreiHandLandmarkDataset(
-        image_size=args.image_size,
-        heatmap_size=args.heatmap_size,
-        heatmap_sigma=args.heatmap_sigma,
-        normalize=True,
-        return_tensors=True,
-        crop_hand=args.crop_hand,
-        augment=args.augment,
-        augment_strength=args.augment_strength,
-        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
-    )
-    val_dataset = FreiHandLandmarkDataset(
-        image_size=args.image_size,
-        heatmap_size=args.heatmap_size,
-        heatmap_sigma=args.heatmap_sigma,
-        normalize=True,
-        return_tensors=True,
-        crop_hand=args.crop_hand,
-        augment=False,
-        augment_strength=args.augment_strength,
-        selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
-    )
-    train_loader, val_loader = create_dataloaders(
-        train_dataset=train_dataset,
-        val_dataset=val_dataset,
-        batch_size=args.batch_size,
-        val_ratio=args.val_ratio,
-        seed=args.seed,
-        num_workers=args.num_workers,
-        max_samples=args.max_samples,
-    )
+    train_dataset, val_dataset, uses_native_split = build_datasets(args)
+    if uses_native_split:
+        train_loader, val_loader = create_native_split_dataloaders(
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            max_samples=args.max_samples,
+        )
+    else:
+        train_loader, val_loader = create_dataloaders(
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            batch_size=args.batch_size,
+            val_ratio=args.val_ratio,
+            seed=args.seed,
+            num_workers=args.num_workers,
+            max_samples=args.max_samples,
+        )
 
     model = create_heatmap_model(num_landmarks=train_dataset.num_landmarks).to(device)
     criterion = nn.MSELoss()

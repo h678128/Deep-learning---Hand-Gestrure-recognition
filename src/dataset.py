@@ -15,6 +15,7 @@ DATA_ROOT = PROJECT_ROOT / "data" / "trene"
 TRAINING_RGB_PATH = DATA_ROOT / "training" / "rgb"
 TRAINING_XYZ_PATH = DATA_ROOT / "training_xyz.json"
 TRAINING_K_PATH = DATA_ROOT / "training_K.json"
+ULTRALYTICS_HAND_KEYPOINTS_ROOT = PROJECT_ROOT / "data" / "hand-keypoints"
 
 FULL_HAND_CONNECTIONS = [
     (0, 1),
@@ -77,6 +78,15 @@ class FreiHandSample:
     image_path: Path
     image_index: int
     annotation_index: int
+    crop_box: tuple[int, int, int, int]
+
+
+@dataclass
+class UltralyticsHandSample:
+    image: np.ndarray
+    landmarks_2d: np.ndarray
+    image_path: Path
+    label_index: int
     crop_box: tuple[int, int, int, int]
 
 
@@ -480,6 +490,240 @@ class FreiHandLandmarkDataset(Dataset):
             "annotation_count": len(self.landmarks_3d_all),
             "images_per_annotation": self.images_per_annotation,
             "mapping_mode": self.mapping_mode,
+            "num_landmarks": self.num_landmarks,
+            "image_size": self.image_size,
+            "heatmap_size": self.heatmap_size,
+            "heatmap_sigma": self.heatmap_sigma,
+            "crop_hand": self.crop_hand,
+            "crop_padding": self.crop_padding,
+            "augment": self.augment,
+            "augment_strength": self.augment_strength,
+            "selected_landmark_indices": list(self.selected_landmark_indices),
+        }
+
+
+class UltralyticsHandKeypointDataset(Dataset):
+    def __init__(
+        self,
+        root: Path = ULTRALYTICS_HAND_KEYPOINTS_ROOT,
+        split: str = "train",
+        image_size: int = 224,
+        heatmap_size: int = 56,
+        heatmap_sigma: float = 2.0,
+        normalize: bool = True,
+        return_tensors: bool = True,
+        crop_hand: bool = False,
+        crop_padding: float = 0.25,
+        augment: bool = False,
+        augment_strength: str = "moderate",
+        selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
+    ) -> None:
+        self.root = Path(root)
+        self.split = split
+        self.image_dir = self.root / "images" / split
+        self.label_dir = self.root / "labels" / split
+        self.image_size = image_size
+        self.heatmap_size = heatmap_size
+        self.heatmap_sigma = heatmap_sigma
+        self.normalize = normalize
+        self.return_tensors = return_tensors
+        self.crop_hand = crop_hand
+        self.crop_padding = crop_padding
+        self.augment = augment
+        self.augment_strength = augment_strength
+        self.selected_landmark_indices = tuple(selected_landmark_indices)
+        self.selected_connections = infer_connections(self.selected_landmark_indices)
+        self.num_landmarks = len(self.selected_landmark_indices)
+
+        if not self.image_dir.exists():
+            raise FileNotFoundError(
+                f"Could not find Ultralytics image directory: {self.image_dir}. "
+                "Download hand-keypoints.zip and extract it under data/ first."
+            )
+        if not self.label_dir.exists():
+            raise FileNotFoundError(f"Could not find Ultralytics label directory: {self.label_dir}.")
+
+        self.samples: list[tuple[Path, np.ndarray, int]] = []
+        image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+        image_paths = sorted(
+            path for path in self.image_dir.iterdir() if path.suffix.lower() in image_extensions
+        )
+
+        for image_path in image_paths:
+            label_path = self.label_dir / f"{image_path.stem}.txt"
+            if not label_path.exists():
+                continue
+            with label_path.open("r", encoding="utf-8") as file:
+                for label_index, line in enumerate(file):
+                    values = np.fromstring(line.strip(), sep=" ", dtype=np.float32)
+                    if values.size < 5 + 21 * 3:
+                        continue
+                    keypoints = values[5 : 5 + 21 * 3].reshape(21, 3)
+                    selected_visibility = keypoints[list(self.selected_landmark_indices), 2]
+                    if np.all(selected_visibility <= 0):
+                        continue
+                    self.samples.append((image_path, values, label_index))
+
+        if not self.samples:
+            raise ValueError(f"No valid Ultralytics hand-keypoint samples found in {self.root}.")
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def get_sample(self, sample_index: int) -> UltralyticsHandSample:
+        image_path, label_values, label_index = self.samples[sample_index]
+        image_bgr = cv2.imread(str(image_path))
+        if image_bgr is None:
+            raise FileNotFoundError(f"Could not read image: {image_path}")
+
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        original_hw = image_rgb.shape[:2]
+        image_h, image_w = original_hw
+
+        keypoints = label_values[5 : 5 + 21 * 3].reshape(21, 3).copy()
+        full_landmarks_2d = keypoints[:, :2]
+        full_landmarks_2d[:, 0] *= image_w
+        full_landmarks_2d[:, 1] *= image_h
+        full_landmarks_2d[:, 0] = np.clip(full_landmarks_2d[:, 0], 0, image_w - 1)
+        full_landmarks_2d[:, 1] = np.clip(full_landmarks_2d[:, 1], 0, image_h - 1)
+
+        selected_landmarks_2d = full_landmarks_2d[list(self.selected_landmark_indices)].copy()
+
+        crop_box = (0, 0, original_hw[1], original_hw[0])
+        if self.crop_hand:
+            crop_box = compute_hand_crop_box(full_landmarks_2d, original_hw, self.crop_padding)
+            image_rgb, selected_landmarks_2d = crop_image_and_landmarks(
+                image_rgb,
+                selected_landmarks_2d,
+                crop_box,
+            )
+            original_hw = image_rgb.shape[:2]
+
+        if self.augment:
+            image_rgb, selected_landmarks_2d = apply_geometric_augmentation(
+                image_rgb,
+                selected_landmarks_2d,
+                strength=self.augment_strength,
+            )
+            image_rgb = apply_photometric_augmentation(
+                image_rgb,
+                strength=self.augment_strength,
+            )
+
+        target_hw = (self.image_size, self.image_size)
+        image_rgb = cv2.resize(image_rgb, (self.image_size, self.image_size))
+        selected_landmarks_2d = resize_landmarks(selected_landmarks_2d, original_hw, target_hw)
+
+        image = image_rgb.astype(np.float32)
+        if self.normalize:
+            image /= 255.0
+
+        return UltralyticsHandSample(
+            image=image,
+            landmarks_2d=selected_landmarks_2d.astype(np.float32),
+            image_path=image_path,
+            label_index=label_index,
+            crop_box=crop_box,
+        )
+
+    def __getitem__(self, sample_index: int) -> dict[str, object]:
+        sample = self.get_sample(sample_index)
+        heatmaps = generate_heatmaps(
+            landmarks_xy=sample.landmarks_2d,
+            image_size=self.image_size,
+            heatmap_size=self.heatmap_size,
+            sigma=self.heatmap_sigma,
+        )
+
+        if not self.return_tensors:
+            return {
+                "image": sample.image,
+                "landmarks_2d": sample.landmarks_2d,
+                "heatmaps": heatmaps,
+                "image_path": str(sample.image_path),
+                "image_index": sample_index,
+                "annotation_index": sample.label_index,
+                "crop_box": sample.crop_box,
+                "source": "ultralytics",
+            }
+
+        image_tensor = torch.from_numpy(sample.image).permute(2, 0, 1).float()
+        landmarks_tensor = torch.from_numpy(sample.landmarks_2d).float()
+        heatmap_tensor = torch.from_numpy(heatmaps).float()
+
+        return {
+            "image": image_tensor,
+            "landmarks_2d": landmarks_tensor,
+            "landmarks_3d": torch.zeros((self.num_landmarks, 3), dtype=torch.float32),
+            "camera_matrix": torch.eye(3, dtype=torch.float32),
+            "heatmaps": heatmap_tensor,
+            "image_path": str(sample.image_path),
+            "image_index": sample_index,
+            "annotation_index": sample.label_index,
+            "crop_box": sample.crop_box,
+            "source": "ultralytics",
+        }
+
+    def summary(self) -> dict[str, object]:
+        return {
+            "dataset": "ultralytics_hand_keypoints",
+            "root": str(self.root),
+            "split": self.split,
+            "sample_count": len(self.samples),
+            "num_landmarks": self.num_landmarks,
+            "image_size": self.image_size,
+            "heatmap_size": self.heatmap_size,
+            "heatmap_sigma": self.heatmap_sigma,
+            "crop_hand": self.crop_hand,
+            "crop_padding": self.crop_padding,
+            "augment": self.augment,
+            "augment_strength": self.augment_strength,
+            "selected_landmark_indices": list(self.selected_landmark_indices),
+        }
+
+
+class MixedHandLandmarkDataset(Dataset):
+    def __init__(
+        self,
+        datasets: Sequence[Dataset],
+        selected_landmark_indices: Sequence[int] = DEFAULT_LANDMARK_INDICES,
+        image_size: int = 224,
+        heatmap_size: int = 56,
+        heatmap_sigma: float = 2.0,
+        crop_hand: bool = False,
+        crop_padding: float = 0.25,
+        augment: bool = False,
+        augment_strength: str = "moderate",
+    ) -> None:
+        self.datasets = list(datasets)
+        self.selected_landmark_indices = tuple(selected_landmark_indices)
+        self.num_landmarks = len(self.selected_landmark_indices)
+        self.image_size = image_size
+        self.heatmap_size = heatmap_size
+        self.heatmap_sigma = heatmap_sigma
+        self.crop_hand = crop_hand
+        self.crop_padding = crop_padding
+        self.augment = augment
+        self.augment_strength = augment_strength
+        self.cumulative_sizes = np.cumsum([len(dataset) for dataset in self.datasets]).tolist()
+
+    def __len__(self) -> int:
+        return int(self.cumulative_sizes[-1]) if self.cumulative_sizes else 0
+
+    def __getitem__(self, index: int):
+        dataset_index = int(np.searchsorted(self.cumulative_sizes, index, side="right"))
+        previous_size = 0 if dataset_index == 0 else self.cumulative_sizes[dataset_index - 1]
+        sample_index = index - previous_size
+        return self.datasets[dataset_index][sample_index]
+
+    def summary(self) -> dict[str, object]:
+        return {
+            "dataset": "mixed",
+            "components": [
+                dataset.summary() if hasattr(dataset, "summary") else {"length": len(dataset)}
+                for dataset in self.datasets
+            ],
+            "sample_count": len(self),
             "num_landmarks": self.num_landmarks,
             "image_size": self.image_size,
             "heatmap_size": self.heatmap_size,
