@@ -1,0 +1,23 @@
+{
+  "files.watcherExclude": {
+    "**/data/images/**": true,
+    "**/data/labels/**": true,
+    "**/data/trene/**": true,
+    "**/data/annotations/**": true,
+    "**/outputs/**": true,
+    "**/modell/**": true,
+    "**/__pycache__/**": true
+  },
+  "search.exclude": {
+    "**/data/images/**": true,
+    "**/data/labels/**": true,
+    "**/data/trene/**": true,
+    "**/data/annotations/**": true,
+    "**/outputs/**": true,
+    "**/modell/**": true,
+    "**/__pycache__/**": true
+  },
+  "files.exclude": {
+    "**/__pycache__": true
+  }
+}

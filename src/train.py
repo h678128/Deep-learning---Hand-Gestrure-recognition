@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument(
+        "--torch-threads",
+        type=int,
+        default=None,
+        help="Begrens antall CPU-traader PyTorch bruker. Nyttig hvis PC-en blir treg under trening.",
+    )
+    parser.add_argument(
         "--max-samples",
         type=int,
         default=None,
@@ -415,6 +421,8 @@ def load_resume_checkpoint(
 def main() -> None:
     args = parse_args()
     set_seed(args.seed)
+    if args.torch_threads is not None:
+        torch.set_num_threads(args.torch_threads)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_dataset, val_dataset, uses_native_split = build_datasets(args)
@@ -459,6 +467,8 @@ def main() -> None:
         )
 
     print("Device:", device)
+    if args.torch_threads is not None:
+        print("Torch CPU threads:", torch.get_num_threads())
     print("Train dataset summary:", train_dataset.summary())
     print("Validation dataset summary:", val_dataset.summary())
     print("Train batches:", len(train_loader))
