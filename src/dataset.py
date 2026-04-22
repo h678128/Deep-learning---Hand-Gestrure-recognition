@@ -464,6 +464,7 @@ class FreiHandLandmarkDataset(Dataset):
                 "image_index": sample.image_index,
                 "annotation_index": sample.annotation_index,
                 "crop_box": sample.crop_box,
+                "source": "freihand",
             }
 
         image_tensor = torch.from_numpy(sample.image).permute(2, 0, 1).float()
@@ -482,6 +483,7 @@ class FreiHandLandmarkDataset(Dataset):
             "image_index": sample.image_index,
             "annotation_index": sample.annotation_index,
             "crop_box": sample.crop_box,
+            "source": "freihand",
         }
 
     def summary(self) -> dict[str, object]:
