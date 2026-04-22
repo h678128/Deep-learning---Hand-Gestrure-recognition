@@ -222,6 +222,24 @@ def main() -> None:
                     hands_detector,
                     padding_ratio=args.mediapipe_padding,
                 )
+                if roi is None:
+                    smoothed_landmarks = None
+                    preview = frame_bgr.copy()
+                    cv2.putText(
+                        preview,
+                        "No hand detected",
+                        (12, 28),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (255, 255, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
+                    cv2.imshow("Hand Landmark Live", preview)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("q"):
+                        break
+                    continue
 
             frame_for_model = frame_bgr
             if roi is not None:
