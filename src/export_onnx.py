@@ -8,6 +8,8 @@ import torch
 
 from model import create_heatmap_model_from_checkpoint
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Eksporter modell til ONNX.")
@@ -19,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("..") / "docs" / "model.onnx",
+        default=PROJECT_ROOT / "docs" / "model.onnx",
     )
     parser.add_argument("--image-size", type=int, default=224)
     return parser.parse_args()
