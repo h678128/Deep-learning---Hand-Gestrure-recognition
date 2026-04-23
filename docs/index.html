@@ -219,9 +219,12 @@ const SMOOTH_LM    = 0.6;  // landmark smoothing
 const SMOOTH_MOUSE = 0.5;  // musepeker smoothing
 
 // Landmark-indekser (11-punkts modell)
-const WRIST=0, INDEX_MCP=1, INDEX_TIP=2, MIDDLE_MCP=3, MIDDLE_TIP=4,
-      RING_MCP=5, RING_TIP=6, PINKY_MCP=7, PINKY_TIP=8,
-      THUMB_IP=9, THUMB_TIP=10;
+// MediaPipe: 0=wrist,1=thumb_cmc,4=thumb_tip,5=index_mcp,8=index_tip,...
+const WRIST=0, THUMB_CMC=1, THUMB_TIP=2,
+      INDEX_MCP=3, INDEX_TIP=4,
+      MIDDLE_MCP=5, MIDDLE_TIP=6,
+      RING_MCP=7, RING_TIP=8,
+      PINKY_MCP=9, PINKY_TIP=10;
 
 const CONNECTIONS = [
   [WRIST,INDEX_MCP],[INDEX_MCP,INDEX_TIP],
@@ -320,30 +323,33 @@ function decodeHeatmaps(heatmapData, numLm, hSize) {
 function dist(a, b) {
   return Math.hypot(a[0] - b[0], a[1] - b[1]);
 }
-function fingerExtended(lm, tip, mcp) {
-  // Tuppen er utstrakt hvis den er mye lenger fra håndleddet enn MCP-en
-  return dist(lm[tip], lm[WRIST]) > dist(lm[mcp], lm[WRIST]) * 1.7;
-}
-function fingerCurled(lm, tip, mcp) {
-  // Tuppen er bøyd hvis den IKKE er mye lenger fra håndleddet enn MCP-en
-  return dist(lm[tip], lm[WRIST]) < dist(lm[mcp], lm[WRIST]) * 1.3;
-}
-function thumbOut(lm) {
-  const handH = Math.max(1, Math.abs(lm[INDEX_MCP][1] - lm[WRIST][1]));
-  return Math.abs(lm[THUMB_TIP][0] - lm[WRIST][0]) > handH * 0.5;
+function palmCenter(lm) {
+  const pts = [WRIST, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP];
+  return [
+    pts.reduce((s, i) => s + lm[i][0], 0) / pts.length,
+    pts.reduce((s, i) => s + lm[i][1], 0) / pts.length,
+  ];
 }
 function classifyGesture(lm) {
-  const iUp = fingerExtended(lm, INDEX_TIP,  INDEX_MCP);
-  const mUp = fingerExtended(lm, MIDDLE_TIP, MIDDLE_MCP);
-  const rUp = fingerExtended(lm, RING_TIP,   RING_MCP);
-  const pUp = fingerExtended(lm, PINKY_TIP,  PINKY_MCP);
-  const rDn = fingerCurled(lm, RING_TIP,   RING_MCP);
-  const pDn = fingerCurled(lm, PINKY_TIP,  PINKY_MCP);
-  const tOut = thumbOut(lm);
-  if (iUp && mUp && rUp && pUp)           return 'open_hand';
-  if (!iUp && !mUp && rDn && pDn)         return 'fist';
-  if (tOut && iUp && mUp && rDn && pDn)   return 'right_click';
-  if (!tOut && iUp && mUp && rDn && pDn)  return 'scroll';
+  const pc    = palmCenter(lm);
+  const scale = Math.max(1, dist(lm[WRIST], lm[MIDDLE_MCP]));
+
+  const iD = dist(lm[INDEX_TIP],  pc) / scale;
+  const mD = dist(lm[MIDDLE_TIP], pc) / scale;
+  const rD = dist(lm[RING_TIP],   pc) / scale;
+  const pD = dist(lm[PINKY_TIP],  pc) / scale;
+  const tD = dist(lm[THUMB_TIP],  pc) / scale;
+
+  // Åpen hånd: alle fingertuppper langt fra palmen
+  if (iD > 0.8 && mD > 0.8 && rD > 0.8 && pD > 0.8) return 'open_hand';
+
+  // Knyttneve: alle fingertuppper samlet nær palmen
+  if (iD < 0.55 && mD < 0.55 && rD < 0.6 && pD < 0.6) return 'fist';
+
+  // Fredstegn/høyreklikk: peke+langefinger ute, ring+lillefinger+tommel inne
+  if (iD > 0.8 && mD > 0.8 && rD < 0.6 && pD < 0.6)
+    return tD > 0.6 ? 'right_click' : 'scroll';
+
   return 'unknown';
 }
 
@@ -471,8 +477,8 @@ async function runInference() {
 
     if (active) {
       if (gesture === 'open_hand') {
-        const nx = 1 - smoothLm[INDEX_TIP][0] / video.videoWidth;
-        const ny = smoothLm[INDEX_TIP][1] / video.videoHeight;
+        const nx = 1 - smoothLm[WRIST][0] / video.videoWidth;
+        const ny = smoothLm[WRIST][1] / video.videoHeight;
         smoothX = smoothX === null ? nx : SMOOTH_MOUSE * smoothX + (1 - SMOOTH_MOUSE) * nx;
         smoothY = smoothY === null ? ny : SMOOTH_MOUSE * smoothY + (1 - SMOOTH_MOUSE) * ny;
         moveCursor(Math.max(0, Math.min(1, smoothX)), Math.max(0, Math.min(1, smoothY)));

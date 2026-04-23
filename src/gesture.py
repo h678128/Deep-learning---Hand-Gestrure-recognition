@@ -12,17 +12,19 @@ except ImportError:
     PYAUTOGUI_AVAILABLE = False
 
 # Indekser i vår 11-punkts modell (LANDMARK_INDICES_11 = 0,1,4,5,8,9,12,13,16,17,20)
+# MediaPipe: 0=wrist, 1=thumb_cmc, 4=thumb_tip, 5=index_mcp, 8=index_tip,
+#            9=middle_mcp, 12=middle_tip, 13=ring_mcp, 16=ring_tip, 17=pinky_mcp, 20=pinky_tip
 WRIST      = 0
-INDEX_MCP  = 1
-INDEX_TIP  = 2
-MIDDLE_MCP = 3
-MIDDLE_TIP = 4
-RING_MCP   = 5
-RING_TIP   = 6
-PINKY_MCP  = 7
-PINKY_TIP  = 8
-THUMB_IP   = 9
-THUMB_TIP  = 10
+THUMB_CMC  = 1
+THUMB_TIP  = 2
+INDEX_MCP  = 3
+INDEX_TIP  = 4
+MIDDLE_MCP = 5
+MIDDLE_TIP = 6
+RING_MCP   = 7
+RING_TIP   = 8
+PINKY_MCP  = 9
+PINKY_TIP  = 10
 
 OPEN_HAND   = "open_hand"
 FIST        = "fist"
@@ -41,37 +43,37 @@ def _dist(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.linalg.norm(a - b))
 
 
-def _finger_extended(lm: np.ndarray, tip: int, mcp: int) -> bool:
-    return _dist(lm[tip], lm[WRIST]) > _dist(lm[mcp], lm[WRIST]) * 1.7
+def _palm_center(lm: np.ndarray) -> np.ndarray:
+    pts = [WRIST, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP]
+    return lm[pts].mean(axis=0)
 
 
-def _finger_curled(lm: np.ndarray, tip: int, mcp: int) -> bool:
-    return _dist(lm[tip], lm[WRIST]) < _dist(lm[mcp], lm[WRIST]) * 1.3
-
-
-def _thumb_out(lm: np.ndarray) -> bool:
-    hand_height = max(1.0, abs(float(lm[INDEX_MCP, 1]) - float(lm[WRIST, 1])))
-    x_dist = abs(float(lm[THUMB_TIP, 0]) - float(lm[WRIST, 0]))
-    return x_dist > hand_height * 0.5
+def _hand_scale(lm: np.ndarray) -> float:
+    return max(1.0, _dist(lm[WRIST], lm[MIDDLE_MCP]))
 
 
 def classify_gesture(landmarks: np.ndarray) -> str:
-    i_up  = _finger_extended(landmarks, INDEX_TIP,  INDEX_MCP)
-    m_up  = _finger_extended(landmarks, MIDDLE_TIP, MIDDLE_MCP)
-    r_up  = _finger_extended(landmarks, RING_TIP,   RING_MCP)
-    p_up  = _finger_extended(landmarks, PINKY_TIP,  PINKY_MCP)
-    r_dn  = _finger_curled(landmarks,   RING_TIP,   RING_MCP)
-    p_dn  = _finger_curled(landmarks,   PINKY_TIP,  PINKY_MCP)
-    thumb = _thumb_out(landmarks)
+    pc    = _palm_center(landmarks)
+    scale = _hand_scale(landmarks)
 
-    if i_up and m_up and r_up and p_up:
+    i_d = _dist(landmarks[INDEX_TIP],  pc) / scale
+    m_d = _dist(landmarks[MIDDLE_TIP], pc) / scale
+    r_d = _dist(landmarks[RING_TIP],   pc) / scale
+    p_d = _dist(landmarks[PINKY_TIP],  pc) / scale
+    t_d = _dist(landmarks[THUMB_TIP],  pc) / scale
+
+    # Åpen hånd: alle fingertuppper langt fra palmen
+    if i_d > 0.8 and m_d > 0.8 and r_d > 0.8 and p_d > 0.8:
         return OPEN_HAND
-    if not i_up and not m_up and r_dn and p_dn:
+
+    # Knyttneve: alle fingertuppper samlet nær palmen
+    if i_d < 0.55 and m_d < 0.55 and r_d < 0.6 and p_d < 0.6:
         return FIST
-    if thumb and i_up and m_up and r_dn and p_dn:
-        return RIGHT_CLICK
-    if not thumb and i_up and m_up and r_dn and p_dn:
-        return "scroll"
+
+    # Fredstegn/høyreklikk: peke+langefinger ute, ring+lillefinger+tommel inne
+    if i_d > 0.8 and m_d > 0.8 and r_d < 0.6 and p_d < 0.6:
+        return RIGHT_CLICK if t_d > 0.6 else "scroll"
+
     return UNKNOWN
 
 
