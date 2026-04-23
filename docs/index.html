@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Håndbevegelse – musekontroll</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f1117;
+      color: #e8eaf0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px 16px;
+      gap: 20px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #fff;
+    }
+
+    #status-bar {
+      font-size: 0.85rem;
+      color: #888;
+      min-height: 1.2em;
+    }
+
+    #stage {
+      position: relative;
+      width: 640px;
+      max-width: 100%;
+      aspect-ratio: 4/3;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #1a1d27;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+
+    #webcam {
+      position: absolute;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      opacity: 0;
+    }
+
+    #canvas {
+      position: absolute;
+      width: 100%; height: 100%;
+    }
+
+    /* Virtuell peker */
+    #cursor {
+      position: absolute;
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      background: rgba(0, 220, 120, 0.85);
+      border: 2px solid #fff;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      display: none;
+      transition: background 0.1s;
+      box-shadow: 0 0 10px rgba(0,220,120,0.6);
+    }
+    #cursor.clicking { background: rgba(255, 80, 80, 0.9); box-shadow: 0 0 14px rgba(255,80,80,0.7); }
+    #cursor.right-clicking { background: rgba(255, 180, 30, 0.9); box-shadow: 0 0 14px rgba(255,180,30,0.7); }
+
+    /* Overlay-etiketter */
+    #gesture-label {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #00dc78;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+
+    #toggle-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: none;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      backdrop-filter: blur(4px);
+    }
+    #toggle-btn.active { background: rgba(0,220,120,0.25); color: #00dc78; }
+
+    /* Instruksjoner */
+    .instructions {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 640px;
+    }
+    .card {
+      background: #1a1d27;
+      border-radius: 10px;
+      padding: 14px 18px;
+      flex: 1;
+      min-width: 160px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .card .icon { font-size: 1.6rem; }
+    .card .title { font-size: 0.85rem; font-weight: 600; color: #fff; }
+    .card .desc { font-size: 0.78rem; color: #888; }
+
+    #start-btn {
+      padding: 12px 36px;
+      border-radius: 24px;
+      border: none;
+      background: #00dc78;
+      color: #0f1117;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,220,120,0.3);
+    }
+    #start-btn:hover { background: #00f086; }
+    #start-btn:disabled { background: #333; color: #666; cursor: default; box-shadow: none; }
+
+    #click-target {
+      width: 640px;
+      max-width: 100%;
+      background: #1a1d27;
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    #click-target h2 { font-size: 1rem; margin-bottom: 12px; color: #aaa; }
+    .click-area {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 120px; height: 120px;
+      border-radius: 50%;
+      border: 2px dashed #444;
+      font-size: 0.85rem;
+      color: #666;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    .click-area.hit {
+      border-color: #00dc78;
+      background: rgba(0,220,120,0.1);
+      color: #00dc78;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Håndbevegelse – musekontroll</h1>
+<div id="status-bar">Klikk "Start kamera" for å begynne</div>
+
+<div id="stage">
+  <video id="webcam" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="cursor"></div>
+  <div id="gesture-label"></div>
+  <button id="toggle-btn">PAUSE</button>
+</div>
+
+<button id="start-btn">Start kamera</button>
+
+<div class="instructions">
+  <div class="card">
+    <span class="icon">🖐️</span>
+    <span class="title">Åpen hånd</span>
+    <span class="desc">Beveg den virtuelle pekeren</span>
+  </div>
+  <div class="card">
+    <span class="icon">✊</span>
+    <span class="title">Knyttneve</span>
+    <span class="desc">Venstreklikk</span>
+  </div>
+  <div class="card">
+    <span class="icon">🤌</span>
+    <span class="title">Tommel + peke + langefinger</span>
+    <span class="desc">Høyreklikk</span>
+  </div>
+</div>
+
+<div id="click-target">
+  <h2>Testklikk — pek hit med åpen hånd og knyt neven</h2>
+  <div class="click-area" id="circle-target">Klikk her</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
+<script>
+// ── Konfigurasjon ──────────────────────────────────────────────
+const IMAGE_SIZE   = 224;
+const HEATMAP_SIZE = 56;   // output er IMAGE_SIZE/4
+const CONF_THRESH  = 0.35;
+const SMOOTH_LM    = 0.6;  // landmark smoothing
+const SMOOTH_MOUSE = 0.5;  // musepeker smoothing
+
+// Landmark-indekser (11-punkts modell)
+const WRIST=0, INDEX_MCP=1, INDEX_TIP=2, MIDDLE_MCP=3, MIDDLE_TIP=4,
+      RING_MCP=5, RING_TIP=6, PINKY_MCP=7, PINKY_TIP=8,
+      THUMB_IP=9, THUMB_TIP=10;
+
+const CONNECTIONS = [
+  [WRIST,INDEX_MCP],[INDEX_MCP,INDEX_TIP],
+  [WRIST,MIDDLE_MCP],[MIDDLE_MCP,MIDDLE_TIP],
+  [WRIST,RING_MCP],[RING_MCP,RING_TIP],
+  [WRIST,PINKY_MCP],[PINKY_MCP,PINKY_TIP],
+  [WRIST,THUMB_IP],[THUMB_IP,THUMB_TIP],
+];
+
+// ── DOM ────────────────────────────────────────────────────────
+const video      = document.getElementById('webcam');
+const canvas     = document.getElementById('canvas');
+const ctx        = canvas.getContext('2d');
+const cursorEl   = document.getElementById('cursor');
+const labelEl    = document.getElementById('gesture-label');
+const statusBar  = document.getElementById('status-bar');
+const startBtn   = document.getElementById('start-btn');
+const toggleBtn  = document.getElementById('toggle-btn');
+const circleTarget = document.getElementById('circle-target');
+
+let session       = null;
+let active        = false;
+let smoothLm      = null;
+let smoothX       = null;
+let smoothY       = null;
+let lastClickTime = 0;
+let prevGesture   = 'unknown';
+const COOLDOWN    = 800;
+
+// ── Last modell ────────────────────────────────────────────────
+async function loadModel() {
+  statusBar.textContent = 'Laster modell…';
+  ort.env.wasm.numThreads = 1;
+  session = await ort.InferenceSession.create('model.onnx', {
+    executionProviders: ['wasm'],
+  });
+  statusBar.textContent = 'Modell lastet. Starter kamera…';
+}
+
+// ── Kamera ────────────────────────────────────────────────────
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 640, height: 480, facingMode: 'user' },
+    audio: false,
+  });
+  video.srcObject = stream;
+  await new Promise(r => video.onloadedmetadata = r);
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  statusBar.textContent = 'Klar! Trykk "AKTIV" for å starte musekontroll.';
+}
+
+// ── Forbehandling ──────────────────────────────────────────────
+function preprocessFrame() {
+  const offscreen = document.createElement('canvas');
+  offscreen.width = offscreen.height = IMAGE_SIZE;
+  const oc = offscreen.getContext('2d');
+  oc.drawImage(video, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+  const { data } = oc.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+
+  const float32 = new Float32Array(3 * IMAGE_SIZE * IMAGE_SIZE);
+  for (let i = 0; i < IMAGE_SIZE * IMAGE_SIZE; i++) {
+    float32[i]                          = data[i*4]   / 255;
+    float32[IMAGE_SIZE*IMAGE_SIZE + i]  = data[i*4+1] / 255;
+    float32[2*IMAGE_SIZE*IMAGE_SIZE + i]= data[i*4+2] / 255;
+  }
+  return new ort.Tensor('float32', float32, [1, 3, IMAGE_SIZE, IMAGE_SIZE]);
+}
+
+// ── Heatmap-dekoding (argmax) ──────────────────────────────────
+function decodeHeatmaps(heatmapData, numLm, hSize) {
+  const landmarks = [];
+  const confidences = [];
+  for (let k = 0; k < numLm; k++) {
+    const offset = k * hSize * hSize;
+    let maxVal = -Infinity, maxIdx = 0;
+    for (let i = 0; i < hSize * hSize; i++) {
+      if (heatmapData[offset + i] > maxVal) {
+        maxVal = heatmapData[offset + i];
+        maxIdx = i;
+      }
+    }
+    const py = Math.floor(maxIdx / hSize);
+    const px = maxIdx % hSize;
+    landmarks.push([
+      (px / hSize) * video.videoWidth,
+      (py / hSize) * video.videoHeight,
+    ]);
+    confidences.push(maxVal);
+  }
+  return { landmarks, confidences };
+}
+
+// ── Gesture-klassifisering ─────────────────────────────────────
+function fingerUp(lm, tip, mcp) {
+  return lm[tip][1] < lm[mcp][1];
+}
+function thumbOut(lm) {
+  const handH = Math.max(1, Math.abs(lm[INDEX_MCP][1] - lm[WRIST][1]));
+  return Math.abs(lm[THUMB_TIP][0] - lm[WRIST][0]) > handH * 0.4;
+}
+function classifyGesture(lm) {
+  const iUp = fingerUp(lm, INDEX_TIP,  INDEX_MCP);
+  const mUp = fingerUp(lm, MIDDLE_TIP, MIDDLE_MCP);
+  const rUp = fingerUp(lm, RING_TIP,   RING_MCP);
+  const pUp = fingerUp(lm, PINKY_TIP,  PINKY_MCP);
+  const tOut = thumbOut(lm);
+  if (iUp && mUp && rUp && pUp)           return 'open_hand';
+  if (!iUp && !mUp && !rUp && !pUp)       return 'fist';
+  if (tOut && iUp && mUp && !rUp && !pUp) return 'right_click';
+  return 'unknown';
+}
+
+const GESTURE_LABEL = {
+  open_hand:   'Musemodus',
+  fist:        'Venstreklikk',
+  right_click: 'Høyreklikk',
+  unknown:     '',
+};
+
+// ── Virtuell peker ────────────────────────────────────────────
+function moveCursor(nx, ny) {
+  // nx/ny er 0-1 i stage-koordinater
+  const stage = canvas.getBoundingClientRect();
+  cursorEl.style.left = (nx * stage.width)  + 'px';
+  cursorEl.style.top  = (ny * stage.height) + 'px';
+  cursorEl.style.display = 'block';
+
+  // Sjekk om pekeren er over testsirkelen
+  const cr = circleTarget.getBoundingClientRect();
+  const cx = cr.left + cr.width/2;
+  const cy = cr.top  + cr.height/2;
+  const px = stage.left + nx * stage.width;
+  const py = stage.top  + ny * stage.height;
+  const dist = Math.hypot(px - cx, py - cy);
+  circleTarget.classList.toggle('hit', dist < cr.width / 2);
+}
+
+function doClick(type) {
+  const now = Date.now();
+  if (now - lastClickTime < COOLDOWN) return;
+  lastClickTime = now;
+
+  cursorEl.classList.add(type === 'right' ? 'right-clicking' : 'clicking');
+  setTimeout(() => cursorEl.classList.remove('clicking', 'right-clicking'), 220);
+
+  // Klikk på testsirkelen
+  if (circleTarget.classList.contains('hit')) {
+    circleTarget.style.background = type === 'right'
+      ? 'rgba(255,180,30,0.25)' : 'rgba(0,220,120,0.25)';
+    setTimeout(() => circleTarget.style.background = '', 300);
+  }
+}
+
+// ── Hoved-loop ────────────────────────────────────────────────
+async function loop() {
+  if (!session || video.readyState < 2) {
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  const tensor = preprocessFrame();
+  const { heatmaps } = await session.run({ image: tensor });
+  const hData  = heatmaps.data;
+  const numLm  = heatmaps.dims[1];
+  const hSize  = heatmaps.dims[2];
+
+  let { landmarks: lm, confidences } = decodeHeatmaps(hData, numLm, hSize);
+
+  // Smooth landmarks
+  if (!smoothLm) {
+    smoothLm = lm.map(p => [...p]);
+  } else {
+    const a = SMOOTH_LM;
+    smoothLm = smoothLm.map((sp, i) => [
+      a * sp[0] + (1-a) * lm[i][0],
+      a * sp[1] + (1-a) * lm[i][1],
+    ]);
+  }
+
+  // Tegn
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.scale(-1, 1);
+  ctx.translate(-canvas.width, 0);
+
+  for (const [s, e] of CONNECTIONS) {
+    if (confidences[s] < CONF_THRESH || confidences[e] < CONF_THRESH) continue;
+    ctx.beginPath();
+    ctx.moveTo(smoothLm[s][0], smoothLm[s][1]);
+    ctx.lineTo(smoothLm[e][0], smoothLm[e][1]);
+    ctx.strokeStyle = '#00dc78';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  for (let i = 0; i < numLm; i++) {
+    ctx.beginPath();
+    ctx.arc(smoothLm[i][0], smoothLm[i][1], 5, 0, 2*Math.PI);
+    ctx.fillStyle = confidences[i] >= CONF_THRESH ? '#00dc78' : '#ff8c00';
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Gesture og musekontroll
+  const gesture = classifyGesture(smoothLm);
+  labelEl.textContent = active ? (GESTURE_LABEL[gesture] || '') : '';
+
+  if (active) {
+    if (gesture === 'open_hand') {
+      const tipX = smoothLm[INDEX_TIP][0];
+      const tipY = smoothLm[INDEX_TIP][1];
+      const nx = 1 - tipX / video.videoWidth;  // speil x
+      const ny = tipY / video.videoHeight;
+
+      smoothX = smoothX === null ? nx : SMOOTH_MOUSE * smoothX + (1-SMOOTH_MOUSE) * nx;
+      smoothY = smoothY === null ? ny : SMOOTH_MOUSE * smoothY + (1-SMOOTH_MOUSE) * ny;
+      moveCursor(
+        Math.max(0, Math.min(1, smoothX)),
+        Math.max(0, Math.min(1, smoothY)),
+      );
+    } else {
+      cursorEl.style.display = 'none';
+      smoothX = null; smoothY = null;
+    }
+
+    if (gesture === 'fist' && prevGesture !== 'fist') doClick('left');
+    if (gesture === 'right_click' && prevGesture !== 'right_click') doClick('right');
+  }
+
+  prevGesture = gesture;
+  requestAnimationFrame(loop);
+}
+
+// ── Knapper ────────────────────────────────────────────────────
+startBtn.addEventListener('click', async () => {
+  startBtn.disabled = true;
+  try {
+    await loadModel();
+    await startCamera();
+    video.style.opacity = 1;
+    toggleBtn.style.display = 'block';
+    startBtn.style.display = 'none';
+    requestAnimationFrame(loop);
+  } catch(e) {
+    statusBar.textContent = 'Feil: ' + e.message;
+    startBtn.disabled = false;
+  }
+});
+
+toggleBtn.addEventListener('click', () => {
+  active = !active;
+  smoothX = null; smoothY = null;
+  cursorEl.style.display = 'none';
+  toggleBtn.textContent = active ? 'AKTIV' : 'PAUSE';
+  toggleBtn.classList.toggle('active', active);
+  statusBar.textContent = active ? 'Musekontroll aktiv' : 'Pause – kamerasyn fortsetter';
+});
+</script>
+</body>
+</html>
