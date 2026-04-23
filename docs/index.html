@@ -244,6 +244,10 @@ const statusBar  = document.getElementById('status-bar');
 const startBtn   = document.getElementById('start-btn');
 const toggleBtn  = document.getElementById('toggle-btn');
 const circleTarget = document.getElementById('circle-target');
+const offscreenCanvas = document.createElement('canvas');
+offscreenCanvas.width = IMAGE_SIZE;
+offscreenCanvas.height = IMAGE_SIZE;
+const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
 
 let session       = null;
 let active        = false;
@@ -280,11 +284,8 @@ async function startCamera() {
 
 // ── Forbehandling ──────────────────────────────────────────────
 function preprocessFrame() {
-  const offscreen = document.createElement('canvas');
-  offscreen.width = offscreen.height = IMAGE_SIZE;
-  const oc = offscreen.getContext('2d');
-  oc.drawImage(video, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
-  const { data } = oc.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+  offscreenCtx.drawImage(video, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+  const { data } = offscreenCtx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
 
   const float32 = new Float32Array(3 * IMAGE_SIZE * IMAGE_SIZE);
   for (let i = 0; i < IMAGE_SIZE * IMAGE_SIZE; i++) {
