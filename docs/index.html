@@ -217,6 +217,7 @@ const HEATMAP_SIZE = 56;   // output er IMAGE_SIZE/4
 const CONF_THRESH  = 0.35;
 const SMOOTH_LM    = 0.6;  // landmark smoothing
 const SMOOTH_MOUSE = 0.5;  // musepeker smoothing
+const INFER_INTERVAL_MS = 50; // maks ca. 20 inferenser per sekund
 
 // Landmark-indekser (11-punkts modell)
 // MediaPipe: 0=wrist,1=thumb_cmc,4=thumb_tip,5=index_mcp,8=index_tip,...
@@ -257,6 +258,7 @@ let smoothY       = null;
 let lastClickTime = 0;
 let prevGesture   = 'unknown';
 let inferBusy     = false;
+let lastInferTime = 0;
 const COOLDOWN    = 800;
 
 // ── Last modell ────────────────────────────────────────────────
@@ -450,9 +452,12 @@ function drawFrame(confidences, numLm) {
   ctx.restore();
 }
 
-async function runInference() {
+async function runInference(now) {
   if (inferBusy || !session || video.readyState < 2) return;
+  if (now - lastInferTime < INFER_INTERVAL_MS) return;
+
   inferBusy = true;
+  lastInferTime = now;
   try {
     const tensor = preprocessFrame();
     const { heatmaps } = await session.run({ image: tensor });
@@ -501,8 +506,8 @@ async function runInference() {
   }
 }
 
-function loop() {
-  runInference();
+function loop(now) {
+  runInference(now);
   requestAnimationFrame(loop);
 }
 
