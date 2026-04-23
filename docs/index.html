@@ -205,8 +205,8 @@
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
 <script>
 // ── Konfigurasjon ──────────────────────────────────────────────
-const IMAGE_SIZE   = 224;
-const HEATMAP_SIZE = 56;   // output er IMAGE_SIZE/4
+const IMAGE_SIZE   = 128;
+const HEATMAP_SIZE = 32;   // output er IMAGE_SIZE/4
 const CONF_THRESH  = 0.35;
 const SMOOTH_LM    = 0.6;  // landmark smoothing
 const SMOOTH_MOUSE = 0.5;  // musepeker smoothing
@@ -242,14 +242,16 @@ let smoothX       = null;
 let smoothY       = null;
 let lastClickTime = 0;
 let prevGesture   = 'unknown';
+let frameCount    = 0;
 const COOLDOWN    = 800;
+const INFER_EVERY = 2;  // kjør modellen annenhvert frame
 
 // ── Last modell ────────────────────────────────────────────────
 async function loadModel() {
   statusBar.textContent = 'Laster modell…';
   ort.env.wasm.numThreads = 1;
   session = await ort.InferenceSession.create('model.onnx', {
-    executionProviders: ['wasm'],
+    executionProviders: ['webgl', 'wasm'],
   });
   statusBar.textContent = 'Modell lastet. Starter kamera…';
 }
@@ -376,13 +378,20 @@ async function loop() {
     return;
   }
 
-  const tensor = preprocessFrame();
-  const { heatmaps } = await session.run({ image: tensor });
-  const hData  = heatmaps.data;
-  const numLm  = heatmaps.dims[1];
-  const hSize  = heatmaps.dims[2];
+  frameCount++;
+  let lm, confidences;
 
-  let { landmarks: lm, confidences } = decodeHeatmaps(hData, numLm, hSize);
+  if (frameCount % INFER_EVERY === 0 || !smoothLm) {
+    const tensor = preprocessFrame();
+    const { heatmaps } = await session.run({ image: tensor });
+    const hData  = heatmaps.data;
+    const numLm  = heatmaps.dims[1];
+    const hSize  = heatmaps.dims[2];
+    ({ landmarks: lm, confidences } = decodeHeatmaps(hData, numLm, hSize));
+  } else {
+    requestAnimationFrame(loop);
+    return;
+  }
 
   // Smooth landmarks
   if (!smoothLm) {
