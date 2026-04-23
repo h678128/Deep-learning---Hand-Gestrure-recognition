@@ -229,7 +229,7 @@ def main() -> None:
                     padding_ratio=args.mediapipe_padding,
                 )
 
-            if roi is None:
+            if use_mediapipe and roi is None:
                 smoothed_landmarks = None
                 controller.reset()
 
