@@ -58,7 +58,7 @@
 
     /* Virtuell peker */
     #cursor {
-      position: absolute;
+      position: fixed;
       width: 24px; height: 24px;
       border-radius: 50%;
       background: rgba(0, 220, 120, 0.85);
@@ -68,9 +68,11 @@
       display: none;
       transition: background 0.1s;
       box-shadow: 0 0 10px rgba(0,220,120,0.6);
+      z-index: 9999;
     }
     #cursor.clicking { background: rgba(255, 80, 80, 0.9); box-shadow: 0 0 14px rgba(255,80,80,0.7); }
     #cursor.right-clicking { background: rgba(255, 180, 30, 0.9); box-shadow: 0 0 14px rgba(255,180,30,0.7); }
+    #cursor.scrolling { background: rgba(100, 160, 255, 0.9); box-shadow: 0 0 14px rgba(100,160,255,0.7); }
 
     /* Overlay-etiketter */
     #gesture-label {
@@ -194,6 +196,11 @@
     <span class="icon">🤌</span>
     <span class="title">Tommel + peke + langefinger</span>
     <span class="desc">Høyreklikk</span>
+  </div>
+  <div class="card">
+    <span class="icon">✌️</span>
+    <span class="title">Peke + langefinger</span>
+    <span class="desc">Scroll opp/ned</span>
   </div>
 </div>
 
@@ -323,9 +330,10 @@ function classifyGesture(lm) {
   const rUp = fingerUp(lm, RING_TIP,   RING_MCP);
   const pUp = fingerUp(lm, PINKY_TIP,  PINKY_MCP);
   const tOut = thumbOut(lm);
-  if (iUp && mUp && rUp && pUp)           return 'open_hand';
-  if (!iUp && !mUp && !rUp && !pUp)       return 'fist';
-  if (tOut && iUp && mUp && !rUp && !pUp) return 'right_click';
+  if (iUp && mUp && rUp && pUp)            return 'open_hand';
+  if (!iUp && !mUp && !rUp && !pUp)        return 'fist';
+  if (tOut && iUp && mUp && !rUp && !pUp)  return 'right_click';
+  if (!tOut && iUp && mUp && !rUp && !pUp) return 'scroll';
   return 'unknown';
 }
 
@@ -333,25 +341,36 @@ const GESTURE_LABEL = {
   open_hand:   'Musemodus',
   fist:        'Venstreklikk',
   right_click: 'Høyreklikk',
+  scroll:      'Scroll',
   unknown:     '',
 };
 
 // ── Virtuell peker ────────────────────────────────────────────
-function moveCursor(nx, ny) {
-  // nx/ny er 0-1 i stage-koordinater
-  const stage = canvas.getBoundingClientRect();
-  cursorEl.style.left = (nx * stage.width)  + 'px';
-  cursorEl.style.top  = (ny * stage.height) + 'px';
-  cursorEl.style.display = 'block';
+let scrollPrevY = null;
+const SCROLL_SPEED = 12;
 
-  // Sjekk om pekeren er over testsirkelen
+function moveCursor(nx, ny) {
+  const px = nx * window.innerWidth;
+  const py = ny * window.innerHeight;
+  cursorEl.style.left = px + 'px';
+  cursorEl.style.top  = py + 'px';
+  cursorEl.style.display = 'block';
+  cursorEl.classList.remove('scrolling');
+
   const cr = circleTarget.getBoundingClientRect();
-  const cx = cr.left + cr.width/2;
-  const cy = cr.top  + cr.height/2;
-  const px = stage.left + nx * stage.width;
-  const py = stage.top  + ny * stage.height;
-  const dist = Math.hypot(px - cx, py - cy);
+  const dist = Math.hypot(px - (cr.left + cr.width/2), py - (cr.top + cr.height/2));
   circleTarget.classList.toggle('hit', dist < cr.width / 2);
+}
+
+function doScroll(wristY) {
+  cursorEl.style.display = 'block';
+  cursorEl.classList.add('scrolling');
+  circleTarget.classList.remove('hit');
+  if (scrollPrevY !== null) {
+    const delta = (wristY - scrollPrevY) / video.videoHeight * window.innerHeight;
+    window.scrollBy({ top: delta * SCROLL_SPEED, behavior: 'instant' });
+  }
+  scrollPrevY = wristY;
 }
 
 function doClick(type) {
@@ -428,9 +447,14 @@ async function runInference() {
         smoothX = smoothX === null ? nx : SMOOTH_MOUSE * smoothX + (1 - SMOOTH_MOUSE) * nx;
         smoothY = smoothY === null ? ny : SMOOTH_MOUSE * smoothY + (1 - SMOOTH_MOUSE) * ny;
         moveCursor(Math.max(0, Math.min(1, smoothX)), Math.max(0, Math.min(1, smoothY)));
+        scrollPrevY = null;
+      } else if (gesture === 'scroll') {
+        doScroll(smoothLm[WRIST][1]);
+        smoothX = null; smoothY = null;
       } else {
         cursorEl.style.display = 'none';
         smoothX = null; smoothY = null;
+        scrollPrevY = null;
       }
       if (gesture === 'fist' && prevGesture !== 'fist') doClick('left');
       if (gesture === 'right_click' && prevGesture !== 'right_click') doClick('right');
