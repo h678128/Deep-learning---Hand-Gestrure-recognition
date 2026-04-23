@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from dataset import DEFAULT_LANDMARK_INDICES, decode_heatmaps, infer_connections
+from gesture import GestureController, classify_gesture, GESTURE_LABELS
 from model import create_heatmap_model_from_checkpoint
 
 try:
@@ -206,6 +207,10 @@ def main() -> None:
     if not capture.isOpened():
         raise RuntimeError(f"Could not open webcam at index {args.camera_index}.")
 
+    ret, probe = capture.read()
+    frame_h, frame_w = probe.shape[:2] if ret else (1080, 1920)
+    controller = GestureController(frame_w=frame_w, frame_h=frame_h)
+
     smoothed_landmarks: np.ndarray | None = None
 
     try:
@@ -225,6 +230,7 @@ def main() -> None:
 
             if roi is None:
                 smoothed_landmarks = None
+                controller.reset()
 
             frame_for_model = frame_bgr
             if roi is not None:
@@ -256,6 +262,9 @@ def main() -> None:
                 alpha = np.clip(args.smooth_factor, 0.0, 0.99)
                 smoothed_landmarks = alpha * smoothed_landmarks + (1.0 - alpha) * predicted_landmarks
 
+            gesture = classify_gesture(smoothed_landmarks)
+            controller.process(smoothed_landmarks, gesture)
+
             preview = draw_prediction(
                 frame_bgr,
                 smoothed_landmarks,
@@ -265,6 +274,20 @@ def main() -> None:
             )
             if roi is not None:
                 cv2.rectangle(preview, (x1, y1), (x2, y2), (255, 210, 80), 2)
+
+            label = GESTURE_LABELS.get(gesture, "")
+            if label:
+                cv2.putText(
+                    preview,
+                    label,
+                    (12, preview.shape[0] - 16),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    (0, 220, 120),
+                    2,
+                    cv2.LINE_AA,
+                )
+
             cv2.imshow("Hand Landmark Live", preview)
 
             key = cv2.waitKey(1) & 0xFF
