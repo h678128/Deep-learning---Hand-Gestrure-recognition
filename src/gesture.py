@@ -37,32 +37,41 @@ GESTURE_LABELS = {
 }
 
 
-def _finger_up(lm: np.ndarray, tip: int, mcp: int) -> bool:
-    return float(lm[tip, 1]) < float(lm[mcp, 1])
+def _dist(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.linalg.norm(a - b))
+
+
+def _finger_extended(lm: np.ndarray, tip: int, mcp: int) -> bool:
+    return _dist(lm[tip], lm[WRIST]) > _dist(lm[mcp], lm[WRIST]) * 1.7
+
+
+def _finger_curled(lm: np.ndarray, tip: int, mcp: int) -> bool:
+    return _dist(lm[tip], lm[WRIST]) < _dist(lm[mcp], lm[WRIST]) * 1.3
 
 
 def _thumb_out(lm: np.ndarray) -> bool:
     hand_height = max(1.0, abs(float(lm[INDEX_MCP, 1]) - float(lm[WRIST, 1])))
     x_dist = abs(float(lm[THUMB_TIP, 0]) - float(lm[WRIST, 0]))
-    return x_dist > hand_height * 0.4
+    return x_dist > hand_height * 0.5
 
 
 def classify_gesture(landmarks: np.ndarray) -> str:
-    index_up  = _finger_up(landmarks, INDEX_TIP,  INDEX_MCP)
-    middle_up = _finger_up(landmarks, MIDDLE_TIP, MIDDLE_MCP)
-    ring_up   = _finger_up(landmarks, RING_TIP,   RING_MCP)
-    pinky_up  = _finger_up(landmarks, PINKY_TIP,  PINKY_MCP)
-    thumb_out = _thumb_out(landmarks)
+    i_up  = _finger_extended(landmarks, INDEX_TIP,  INDEX_MCP)
+    m_up  = _finger_extended(landmarks, MIDDLE_TIP, MIDDLE_MCP)
+    r_up  = _finger_extended(landmarks, RING_TIP,   RING_MCP)
+    p_up  = _finger_extended(landmarks, PINKY_TIP,  PINKY_MCP)
+    r_dn  = _finger_curled(landmarks,   RING_TIP,   RING_MCP)
+    p_dn  = _finger_curled(landmarks,   PINKY_TIP,  PINKY_MCP)
+    thumb = _thumb_out(landmarks)
 
-    if index_up and middle_up and ring_up and pinky_up:
+    if i_up and m_up and r_up and p_up:
         return OPEN_HAND
-
-    if not index_up and not middle_up and not ring_up and not pinky_up:
+    if not i_up and not m_up and r_dn and p_dn:
         return FIST
-
-    if thumb_out and index_up and middle_up and not ring_up and not pinky_up:
+    if thumb and i_up and m_up and r_dn and p_dn:
         return RIGHT_CLICK
-
+    if not thumb and i_up and m_up and r_dn and p_dn:
+        return "scroll"
     return UNKNOWN
 
 

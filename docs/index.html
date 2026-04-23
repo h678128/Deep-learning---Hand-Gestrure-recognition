@@ -317,27 +317,28 @@ function decodeHeatmaps(heatmapData, numLm, hSize) {
 }
 
 // ── Gesture-klassifisering ─────────────────────────────────────
-function fingerUp(lm, tip, mcp) {
-  // Krever at tuppen er tydelig over MCP (margin = 8% av handhøyden)
-  const handH = Math.max(1, Math.abs(lm[INDEX_MCP][1] - lm[WRIST][1]));
-  return lm[tip][1] < lm[mcp][1] - handH * 0.08;
+function dist(a, b) {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
 }
-function fingerDown(lm, tip, mcp) {
-  // Krever at tuppen er tydelig under eller nær MCP
-  const handH = Math.max(1, Math.abs(lm[INDEX_MCP][1] - lm[WRIST][1]));
-  return lm[tip][1] > lm[mcp][1] - handH * 0.15;
+function fingerExtended(lm, tip, mcp) {
+  // Tuppen er utstrakt hvis den er mye lenger fra håndleddet enn MCP-en
+  return dist(lm[tip], lm[WRIST]) > dist(lm[mcp], lm[WRIST]) * 1.7;
+}
+function fingerCurled(lm, tip, mcp) {
+  // Tuppen er bøyd hvis den IKKE er mye lenger fra håndleddet enn MCP-en
+  return dist(lm[tip], lm[WRIST]) < dist(lm[mcp], lm[WRIST]) * 1.3;
 }
 function thumbOut(lm) {
   const handH = Math.max(1, Math.abs(lm[INDEX_MCP][1] - lm[WRIST][1]));
   return Math.abs(lm[THUMB_TIP][0] - lm[WRIST][0]) > handH * 0.5;
 }
 function classifyGesture(lm) {
-  const iUp = fingerUp(lm, INDEX_TIP,  INDEX_MCP);
-  const mUp = fingerUp(lm, MIDDLE_TIP, MIDDLE_MCP);
-  const rDn = fingerDown(lm, RING_TIP,   RING_MCP);
-  const pDn = fingerDown(lm, PINKY_TIP,  PINKY_MCP);
-  const rUp = fingerUp(lm, RING_TIP,   RING_MCP);
-  const pUp = fingerUp(lm, PINKY_TIP,  PINKY_MCP);
+  const iUp = fingerExtended(lm, INDEX_TIP,  INDEX_MCP);
+  const mUp = fingerExtended(lm, MIDDLE_TIP, MIDDLE_MCP);
+  const rUp = fingerExtended(lm, RING_TIP,   RING_MCP);
+  const pUp = fingerExtended(lm, PINKY_TIP,  PINKY_MCP);
+  const rDn = fingerCurled(lm, RING_TIP,   RING_MCP);
+  const pDn = fingerCurled(lm, PINKY_TIP,  PINKY_MCP);
   const tOut = thumbOut(lm);
   if (iUp && mUp && rUp && pUp)           return 'open_hand';
   if (!iUp && !mUp && rDn && pDn)         return 'fist';
