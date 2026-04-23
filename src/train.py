@@ -247,8 +247,16 @@ def build_datasets(args: argparse.Namespace) -> tuple[Dataset, Dataset, bool]:
 
     freihand_train, freihand_val = build_freihand_datasets(args)
     ultralytics_train, ultralytics_val = build_ultralytics_datasets(args)
+
+    # Split FreiHAND by index to avoid data leakage (it has no native split)
+    generator = torch.Generator().manual_seed(args.seed)
+    all_indices = torch.randperm(len(freihand_train), generator=generator).tolist()
+    n_val = max(1, int(len(freihand_train) * args.val_ratio))
+    freihand_train_subset = DatasetSubset(freihand_train, all_indices[n_val:])
+    freihand_val_subset = DatasetSubset(freihand_val, all_indices[:n_val])
+
     train_dataset = MixedHandLandmarkDataset(
-        [freihand_train, ultralytics_train],
+        [freihand_train_subset, ultralytics_train],
         selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
         image_size=args.image_size,
         heatmap_size=args.heatmap_size,
@@ -258,7 +266,7 @@ def build_datasets(args: argparse.Namespace) -> tuple[Dataset, Dataset, bool]:
         augment_strength=args.augment_strength,
     )
     val_dataset = MixedHandLandmarkDataset(
-        [freihand_val, ultralytics_val],
+        [freihand_val_subset, ultralytics_val],
         selected_landmark_indices=DEFAULT_LANDMARK_INDICES,
         image_size=args.image_size,
         heatmap_size=args.heatmap_size,
@@ -331,12 +339,14 @@ def save_checkpoint(
     best_val_loss: float,
     best_epoch: int,
     completed_epochs: int,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
 ) -> None:
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
             "image_size": args.image_size,
             "heatmap_size": args.heatmap_size,
             "heatmap_sigma": args.heatmap_sigma,
@@ -387,6 +397,7 @@ def load_resume_checkpoint(
     optimizer: torch.optim.Optimizer,
     dataset: Dataset,
     device: torch.device,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
 ) -> tuple[float, int, int]:
     checkpoint = torch.load(resume_path, map_location=device)
 
@@ -405,6 +416,11 @@ def load_resume_checkpoint(
     optimizer_state = checkpoint.get("optimizer_state_dict")
     if optimizer_state is not None:
         optimizer.load_state_dict(optimizer_state)
+
+    if scheduler is not None:
+        scheduler_state = checkpoint.get("scheduler_state_dict")
+        if scheduler_state is not None:
+            scheduler.load_state_dict(scheduler_state)
 
     best_val_loss = float(checkpoint.get("best_val_loss", float("inf")))
     best_epoch = int(checkpoint.get("best_epoch", 0))
@@ -444,6 +460,11 @@ def main() -> None:
         lr=args.learning_rate,
         weight_decay=args.weight_decay,
     )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=args.epochs,
+        eta_min=args.learning_rate * 0.01,
+    )
 
     best_val_loss = float("inf")
     best_epoch = 0
@@ -456,6 +477,7 @@ def main() -> None:
             optimizer=optimizer,
             dataset=train_dataset,
             device=device,
+            scheduler=scheduler,
         )
 
     print("Device:", device)
@@ -487,11 +509,15 @@ def main() -> None:
             image_size=args.image_size,
         )
 
+        current_lr = scheduler.get_last_lr()[0]
         print(
             f"Epoch {epoch:02d}/{completed_epochs + args.epochs} | "
             f"train_loss={train_loss:.5f} | train_pixel_error={train_error:.2f} | "
-            f"val_loss={val_loss:.5f} | val_pixel_error={val_error:.2f}"
+            f"val_loss={val_loss:.5f} | val_pixel_error={val_error:.2f} | "
+            f"lr={current_lr:.2e}"
         )
+
+        scheduler.step()
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -505,6 +531,7 @@ def main() -> None:
                 best_val_loss,
                 best_epoch,
                 completed_epochs=epoch,
+                scheduler=scheduler,
             )
             print(f"Saved best checkpoint to {args.checkpoint}")
 
@@ -517,6 +544,7 @@ def main() -> None:
             best_val_loss,
             best_epoch,
             completed_epochs=epoch,
+            scheduler=scheduler,
         )
 
 

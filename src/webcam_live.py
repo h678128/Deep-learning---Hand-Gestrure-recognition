@@ -223,6 +223,9 @@ def main() -> None:
                     padding_ratio=args.mediapipe_padding,
                 )
 
+            if roi is None:
+                smoothed_landmarks = None
+
             frame_for_model = frame_bgr
             if roi is not None:
                 x1, y1, x2, y2 = roi
