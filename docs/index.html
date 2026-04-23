@@ -318,23 +318,51 @@ function decodeHeatmaps(heatmapData, numLm, hSize) {
 
 // ── Gesture-klassifisering ─────────────────────────────────────
 function fingerUp(lm, tip, mcp) {
-  return lm[tip][1] < lm[mcp][1];
+  // Krever at tuppen er tydelig over MCP (margin = 8% av handhøyden)
+  const handH = Math.max(1, Math.abs(lm[INDEX_MCP][1] - lm[WRIST][1]));
+  return lm[tip][1] < lm[mcp][1] - handH * 0.08;
+}
+function fingerDown(lm, tip, mcp) {
+  // Krever at tuppen er tydelig under eller nær MCP
+  const handH = Math.max(1, Math.abs(lm[INDEX_MCP][1] - lm[WRIST][1]));
+  return lm[tip][1] > lm[mcp][1] - handH * 0.15;
 }
 function thumbOut(lm) {
   const handH = Math.max(1, Math.abs(lm[INDEX_MCP][1] - lm[WRIST][1]));
-  return Math.abs(lm[THUMB_TIP][0] - lm[WRIST][0]) > handH * 0.4;
+  return Math.abs(lm[THUMB_TIP][0] - lm[WRIST][0]) > handH * 0.5;
 }
 function classifyGesture(lm) {
   const iUp = fingerUp(lm, INDEX_TIP,  INDEX_MCP);
   const mUp = fingerUp(lm, MIDDLE_TIP, MIDDLE_MCP);
+  const rDn = fingerDown(lm, RING_TIP,   RING_MCP);
+  const pDn = fingerDown(lm, PINKY_TIP,  PINKY_MCP);
   const rUp = fingerUp(lm, RING_TIP,   RING_MCP);
   const pUp = fingerUp(lm, PINKY_TIP,  PINKY_MCP);
   const tOut = thumbOut(lm);
-  if (iUp && mUp && rUp && pUp)            return 'open_hand';
-  if (!iUp && !mUp && !rUp && !pUp)        return 'fist';
-  if (tOut && iUp && mUp && !rUp && !pUp)  return 'right_click';
-  if (!tOut && iUp && mUp && !rUp && !pUp) return 'scroll';
+  if (iUp && mUp && rUp && pUp)           return 'open_hand';
+  if (!iUp && !mUp && rDn && pDn)         return 'fist';
+  if (tOut && iUp && mUp && rDn && pDn)   return 'right_click';
+  if (!tOut && iUp && mUp && rDn && pDn)  return 'scroll';
   return 'unknown';
+}
+
+// ── Gesture-hysterese ──────────────────────────────────────────
+const GESTURE_HOLD_FRAMES = 4;
+let gestureCandidateCount = 0;
+let gestureCandidate = 'unknown';
+let confirmedGesture  = 'unknown';
+
+function updateGesture(raw) {
+  if (raw === gestureCandidate) {
+    gestureCandidateCount++;
+  } else {
+    gestureCandidate = raw;
+    gestureCandidateCount = 1;
+  }
+  if (gestureCandidateCount >= GESTURE_HOLD_FRAMES) {
+    confirmedGesture = gestureCandidate;
+  }
+  return confirmedGesture;
 }
 
 const GESTURE_LABEL = {
@@ -437,7 +465,7 @@ async function runInference() {
 
     drawFrame(confidences, numLm);
 
-    const gesture = classifyGesture(smoothLm);
+    const gesture = updateGesture(classifyGesture(smoothLm));
     labelEl.textContent = active ? (GESTURE_LABEL[gesture] || '') : '';
 
     if (active) {
