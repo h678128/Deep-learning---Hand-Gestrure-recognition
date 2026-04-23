@@ -403,7 +403,7 @@ function doScroll(wristY) {
   circleTarget.classList.remove('hit');
   if (scrollPrevY !== null) {
     const delta = (wristY - scrollPrevY) / video.videoHeight * window.innerHeight;
-    window.scrollBy({ top: delta * SCROLL_SPEED, behavior: 'instant' });
+    window.scrollBy({ top: delta * SCROLL_SPEED, behavior: 'auto' });
   }
   scrollPrevY = wristY;
 }
