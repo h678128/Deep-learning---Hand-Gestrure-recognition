@@ -67,7 +67,7 @@ def classify_gesture(landmarks: np.ndarray) -> str:
         return OPEN_HAND
 
     # Knyttneve: alle fingertuppper samlet nær palmen
-    if i_d < 0.55 and m_d < 0.55 and r_d < 0.6 and p_d < 0.6:
+    if i_d < 0.65 and m_d < 0.65 and r_d < 0.7 and p_d < 0.7:
         return FIST
 
     # Fredstegn/høyreklikk: peke+langefinger ute, ring+lillefinger+tommel inne

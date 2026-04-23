@@ -259,7 +259,7 @@ const COOLDOWN    = 800;
 async function loadModel() {
   statusBar.textContent = 'Laster modell…';
   ort.env.wasm.numThreads = 1;
-  session = await ort.InferenceSession.create('model.onnx', {
+  session = await ort.InferenceSession.create('model_quant.onnx', {
     executionProviders: ['webgl', 'wasm'],
   });
   statusBar.textContent = 'Modell lastet. Starter kamera…';
@@ -344,7 +344,7 @@ function classifyGesture(lm) {
   if (iD > 0.8 && mD > 0.8 && rD > 0.8 && pD > 0.8) return 'open_hand';
 
   // Knyttneve: alle fingertuppper samlet nær palmen
-  if (iD < 0.55 && mD < 0.55 && rD < 0.6 && pD < 0.6) return 'fist';
+  if (iD < 0.65 && mD < 0.65 && rD < 0.7 && pD < 0.7) return 'fist';
 
   // Fredstegn/høyreklikk: peke+langefinger ute, ring+lillefinger+tommel inne
   if (iD > 0.8 && mD > 0.8 && rD < 0.6 && pD < 0.6)
