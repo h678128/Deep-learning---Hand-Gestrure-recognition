@@ -36,9 +36,9 @@ def parse_args() -> argparse.Namespace:
         help="Hoyere verdi gir roligere punkter.",
     )
     parser.add_argument(
-        "--disable-mediapipe",
+        "--use-mediapipe",
         action="store_true",
-        help="Skru av MediaPipe-handdeteksjon og bruk hele bildet direkte.",
+        help="Bruk MediaPipe-handdeteksjon til aa croppe haanden for modellen.",
     )
     parser.add_argument(
         "--mediapipe-padding",
@@ -198,7 +198,7 @@ def main() -> None:
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    use_mediapipe = (not args.disable_mediapipe) and (mp is not None)
+    use_mediapipe = args.use_mediapipe and (mp is not None)
     hands_detector = None
     if use_mediapipe:
         hands_detector = create_mediapipe_hands_detector()
