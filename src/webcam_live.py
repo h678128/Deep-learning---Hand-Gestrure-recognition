@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from dataset import DEFAULT_LANDMARK_INDICES, decode_heatmaps, infer_connections
-from model import create_heatmap_model
+from model import create_heatmap_model_from_checkpoint
 
 try:
     import mediapipe as mp
@@ -193,7 +193,7 @@ def main() -> None:
     )
     connections = infer_connections(selected_landmark_indices)
 
-    model = create_heatmap_model(num_landmarks=num_landmarks).to(device)
+    model = create_heatmap_model_from_checkpoint(checkpoint).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 

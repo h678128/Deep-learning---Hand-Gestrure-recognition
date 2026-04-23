@@ -93,6 +93,81 @@ class DatasetSubset(Dataset):
     def __getitem__(self, index: int):
         return self.dataset[self.indices[index]]
 
+    def summary(self) -> dict[str, object]:
+        base_summary = self.dataset.summary() if hasattr(self.dataset, "summary") else {"length": len(self.dataset)}
+        return {
+            "dataset": "subset",
+            "subset_size": len(self.indices),
+            "base": base_summary,
+        }
+
+
+def get_freihand_image_indices_for_annotations(
+    dataset: FreiHandLandmarkDataset,
+    annotation_indices: list[int],
+) -> list[int]:
+    annotation_count = len(dataset.landmarks_3d_all)
+
+    if dataset.mapping_mode == "interleaved":
+        return [
+            annotation_index + view_index * annotation_count
+            for annotation_index in annotation_indices
+            for view_index in range(dataset.images_per_annotation)
+        ]
+
+    if dataset.mapping_mode == "grouped":
+        return [
+            image_index
+            for annotation_index in annotation_indices
+            for image_index in range(
+                annotation_index * dataset.images_per_annotation,
+                (annotation_index + 1) * dataset.images_per_annotation,
+            )
+        ]
+
+    annotation_set = set(annotation_indices)
+    return [
+        image_index
+        for image_index in range(len(dataset))
+        if dataset.get_annotation_index(image_index) in annotation_set
+    ]
+
+
+def split_freihand_image_indices(
+    dataset: FreiHandLandmarkDataset,
+    val_ratio: float,
+    seed: int,
+    max_samples: int | None = None,
+) -> tuple[list[int], list[int]]:
+    annotation_count = len(dataset.landmarks_3d_all)
+
+    val_annotation_count = max(1, int(annotation_count * val_ratio))
+    train_annotation_count = annotation_count - val_annotation_count
+
+    if train_annotation_count <= 0:
+        raise ValueError("Validation split is too large for the selected dataset size.")
+
+    generator = torch.Generator().manual_seed(seed)
+    shuffled_annotations = torch.randperm(annotation_count, generator=generator).tolist()
+    train_annotations = shuffled_annotations[:train_annotation_count]
+    val_annotations = shuffled_annotations[train_annotation_count:]
+
+    train_indices = get_freihand_image_indices_for_annotations(dataset, train_annotations)
+    val_indices = get_freihand_image_indices_for_annotations(dataset, val_annotations)
+
+    if max_samples is not None:
+        selected_image_count = min(max_samples, len(train_indices) + len(val_indices))
+        val_image_count = max(1, int(selected_image_count * val_ratio))
+        train_image_count = selected_image_count - val_image_count
+
+        if train_image_count <= 0:
+            raise ValueError("Validation split is too large for the selected dataset size.")
+
+        train_indices = train_indices[: min(train_image_count, len(train_indices))]
+        val_indices = val_indices[: min(val_image_count, len(val_indices))]
+
+    return train_indices, val_indices
+
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -111,22 +186,33 @@ def create_dataloaders(
     num_workers: int,
     max_samples: int | None = None,
 ) -> tuple[DataLoader, DataLoader]:
-    total_indices = list(range(len(train_dataset)))
+    if isinstance(train_dataset, FreiHandLandmarkDataset) and isinstance(
+        val_dataset,
+        FreiHandLandmarkDataset,
+    ):
+        train_indices, val_indices = split_freihand_image_indices(
+            dataset=train_dataset,
+            val_ratio=val_ratio,
+            seed=seed,
+            max_samples=max_samples,
+        )
+    else:
+        total_indices = list(range(len(train_dataset)))
 
-    if max_samples is not None:
-        total_indices = total_indices[:max_samples]
+        if max_samples is not None:
+            total_indices = total_indices[:max_samples]
 
-    total_size = len(total_indices)
-    val_size = max(1, int(total_size * val_ratio))
-    train_size = total_size - val_size
+        total_size = len(total_indices)
+        val_size = max(1, int(total_size * val_ratio))
+        train_size = total_size - val_size
 
-    if train_size <= 0:
-        raise ValueError("Validation split is too large for the selected dataset size.")
+        if train_size <= 0:
+            raise ValueError("Validation split is too large for the selected dataset size.")
 
-    generator = torch.Generator().manual_seed(seed)
-    shuffled_indices = torch.randperm(total_size, generator=generator).tolist()
-    train_indices = [total_indices[index] for index in shuffled_indices[:train_size]]
-    val_indices = [total_indices[index] for index in shuffled_indices[train_size:]]
+        generator = torch.Generator().manual_seed(seed)
+        shuffled_indices = torch.randperm(total_size, generator=generator).tolist()
+        train_indices = [total_indices[index] for index in shuffled_indices[:train_size]]
+        val_indices = [total_indices[index] for index in shuffled_indices[train_size:]]
 
     train_subset = DatasetSubset(train_dataset, train_indices)
     val_subset = DatasetSubset(val_dataset, val_indices)
@@ -153,13 +239,18 @@ def create_native_split_dataloaders(
     val_dataset: Dataset,
     batch_size: int,
     num_workers: int,
+    seed: int,
     max_samples: int | None = None,
 ) -> tuple[DataLoader, DataLoader]:
     if max_samples is not None:
         train_size = max(1, int(max_samples * 0.9))
         val_size = max(1, max_samples - train_size)
-        train_indices = list(range(min(train_size, len(train_dataset))))
-        val_indices = list(range(min(val_size, len(val_dataset))))
+        train_generator = torch.Generator().manual_seed(seed)
+        val_generator = torch.Generator().manual_seed(seed + 1)
+        train_indices = torch.randperm(len(train_dataset), generator=train_generator).tolist()
+        val_indices = torch.randperm(len(val_dataset), generator=val_generator).tolist()
+        train_indices = train_indices[: min(train_size, len(train_indices))]
+        val_indices = val_indices[: min(val_size, len(val_indices))]
         train_dataset = DatasetSubset(train_dataset, train_indices)
         val_dataset = DatasetSubset(val_dataset, val_indices)
 
@@ -247,13 +338,13 @@ def build_datasets(args: argparse.Namespace) -> tuple[Dataset, Dataset, bool]:
 
     freihand_train, freihand_val = build_freihand_datasets(args)
     ultralytics_train, ultralytics_val = build_ultralytics_datasets(args)
-
-    # Split FreiHAND by index to avoid data leakage (it has no native split)
-    generator = torch.Generator().manual_seed(args.seed)
-    all_indices = torch.randperm(len(freihand_train), generator=generator).tolist()
-    n_val = max(1, int(len(freihand_train) * args.val_ratio))
-    freihand_train_subset = DatasetSubset(freihand_train, all_indices[n_val:])
-    freihand_val_subset = DatasetSubset(freihand_val, all_indices[:n_val])
+    freihand_train_indices, freihand_val_indices = split_freihand_image_indices(
+        dataset=freihand_train,
+        val_ratio=args.val_ratio,
+        seed=args.seed,
+    )
+    freihand_train_subset = DatasetSubset(freihand_train, freihand_train_indices)
+    freihand_val_subset = DatasetSubset(freihand_val, freihand_val_indices)
 
     train_dataset = MixedHandLandmarkDataset(
         [freihand_train_subset, ultralytics_train],
@@ -351,6 +442,7 @@ def save_checkpoint(
             "heatmap_size": args.heatmap_size,
             "heatmap_sigma": args.heatmap_sigma,
             "num_landmarks": dataset.num_landmarks,
+            "model_architecture": "deep",
             "selected_landmark_indices": list(dataset.selected_landmark_indices),
             "crop_hand": dataset.crop_hand,
             "crop_padding": dataset.crop_padding,
@@ -369,6 +461,7 @@ def save_checkpoint(
         "image_size": args.image_size,
         "heatmap_size": args.heatmap_size,
         "heatmap_sigma": args.heatmap_sigma,
+        "model_architecture": "deep",
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
@@ -440,6 +533,7 @@ def main() -> None:
             val_dataset=val_dataset,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
+            seed=args.seed,
             max_samples=args.max_samples,
         )
     else:

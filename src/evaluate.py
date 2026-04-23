@@ -7,8 +7,12 @@ import cv2
 import numpy as np
 import torch
 
-from dataset import FreiHandLandmarkDataset, decode_heatmaps
-from model import create_heatmap_model
+from dataset import (
+    DEFAULT_LANDMARK_INDICES,
+    FreiHandLandmarkDataset,
+    decode_heatmaps,
+)
+from model import create_heatmap_model_from_checkpoint
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,6 +64,9 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     checkpoint = torch.load(args.checkpoint, map_location=device)
+    selected_landmark_indices = (
+        checkpoint.get("selected_landmark_indices") or DEFAULT_LANDMARK_INDICES
+    )
     dataset = FreiHandLandmarkDataset(
         image_size=checkpoint.get("image_size", 224),
         heatmap_size=checkpoint.get("heatmap_size", 56),
@@ -68,11 +75,11 @@ def main() -> None:
         return_tensors=True,
         crop_hand=checkpoint.get("crop_hand", False),
         crop_padding=checkpoint.get("crop_padding", 0.25),
-        selected_landmark_indices=checkpoint.get("selected_landmark_indices"),
+        selected_landmark_indices=selected_landmark_indices,
     )
     sample = dataset[args.index]
 
-    model = create_heatmap_model(num_landmarks=checkpoint["num_landmarks"]).to(device)
+    model = create_heatmap_model_from_checkpoint(checkpoint).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
