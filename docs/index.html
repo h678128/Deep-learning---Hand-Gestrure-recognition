@@ -259,7 +259,7 @@ const COOLDOWN    = 800;
 async function loadModel() {
   statusBar.textContent = 'Laster modell…';
   ort.env.wasm.numThreads = 1;
-  session = await ort.InferenceSession.create('model_quant.onnx', {
+  session = await ort.InferenceSession.create('model.onnx', {
     executionProviders: ['webgl', 'wasm'],
   });
   statusBar.textContent = 'Modell lastet. Starter kamera…';
