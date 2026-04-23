@@ -12,7 +12,7 @@ from dataset import (
     FreiHandLandmarkDataset,
     decode_heatmaps,
 )
-from model import create_heatmap_model
+from model import create_heatmap_model_from_checkpoint
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,7 +79,7 @@ def main() -> None:
     )
     sample = dataset[args.index]
 
-    model = create_heatmap_model(num_landmarks=checkpoint["num_landmarks"]).to(device)
+    model = create_heatmap_model_from_checkpoint(checkpoint).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 

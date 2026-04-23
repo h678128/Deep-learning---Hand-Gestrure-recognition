@@ -11,7 +11,7 @@ import torch
 from flask import Flask, jsonify, render_template_string, request
 
 from dataset import DEFAULT_LANDMARK_INDICES, decode_heatmaps, infer_connections
-from model import create_heatmap_model
+from model import create_heatmap_model_from_checkpoint
 
 try:
     import mediapipe as mp
@@ -1494,7 +1494,7 @@ class CheckpointRegistry:
     def load(self, checkpoint_path: Path) -> tuple[dict[str, object], torch.nn.Module, list[tuple[int, int]]]:
         if checkpoint_path not in self.cache:
             checkpoint = torch.load(checkpoint_path, map_location=self.device)
-            model = create_heatmap_model(num_landmarks=checkpoint["num_landmarks"]).to(self.device)
+            model = create_heatmap_model_from_checkpoint(checkpoint).to(self.device)
             model.load_state_dict(checkpoint["model_state_dict"])
             model.eval()
             selected_landmark_indices = checkpoint.get(
