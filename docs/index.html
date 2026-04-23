@@ -242,9 +242,8 @@ let smoothX       = null;
 let smoothY       = null;
 let lastClickTime = 0;
 let prevGesture   = 'unknown';
-let frameCount    = 0;
+let inferBusy     = false;
 const COOLDOWN    = 800;
-const INFER_EVERY = 2;  // kjør modellen annenhvert frame
 
 // ── Last modell ────────────────────────────────────────────────
 async function loadModel() {
@@ -372,39 +371,7 @@ function doClick(type) {
 }
 
 // ── Hoved-loop ────────────────────────────────────────────────
-async function loop() {
-  if (!session || video.readyState < 2) {
-    requestAnimationFrame(loop);
-    return;
-  }
-
-  frameCount++;
-  let lm, confidences;
-
-  if (frameCount % INFER_EVERY === 0 || !smoothLm) {
-    const tensor = preprocessFrame();
-    const { heatmaps } = await session.run({ image: tensor });
-    const hData  = heatmaps.data;
-    const numLm  = heatmaps.dims[1];
-    const hSize  = heatmaps.dims[2];
-    ({ landmarks: lm, confidences } = decodeHeatmaps(hData, numLm, hSize));
-  } else {
-    requestAnimationFrame(loop);
-    return;
-  }
-
-  // Smooth landmarks
-  if (!smoothLm) {
-    smoothLm = lm.map(p => [...p]);
-  } else {
-    const a = SMOOTH_LM;
-    smoothLm = smoothLm.map((sp, i) => [
-      a * sp[0] + (1-a) * lm[i][0],
-      a * sp[1] + (1-a) * lm[i][1],
-    ]);
-  }
-
-  // Tegn
+function drawFrame(confidences, numLm) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
   ctx.scale(-1, 1);
@@ -421,39 +388,61 @@ async function loop() {
   }
   for (let i = 0; i < numLm; i++) {
     ctx.beginPath();
-    ctx.arc(smoothLm[i][0], smoothLm[i][1], 5, 0, 2*Math.PI);
+    ctx.arc(smoothLm[i][0], smoothLm[i][1], 5, 0, 2 * Math.PI);
     ctx.fillStyle = confidences[i] >= CONF_THRESH ? '#00dc78' : '#ff8c00';
     ctx.fill();
   }
   ctx.restore();
+}
 
-  // Gesture og musekontroll
-  const gesture = classifyGesture(smoothLm);
-  labelEl.textContent = active ? (GESTURE_LABEL[gesture] || '') : '';
+async function runInference() {
+  if (inferBusy || !session || video.readyState < 2) return;
+  inferBusy = true;
+  try {
+    const tensor = preprocessFrame();
+    const { heatmaps } = await session.run({ image: tensor });
+    const hData = heatmaps.data;
+    const numLm = heatmaps.dims[1];
+    const hSize = heatmaps.dims[2];
+    const { landmarks: lm, confidences } = decodeHeatmaps(hData, numLm, hSize);
 
-  if (active) {
-    if (gesture === 'open_hand') {
-      const tipX = smoothLm[INDEX_TIP][0];
-      const tipY = smoothLm[INDEX_TIP][1];
-      const nx = 1 - tipX / video.videoWidth;  // speil x
-      const ny = tipY / video.videoHeight;
-
-      smoothX = smoothX === null ? nx : SMOOTH_MOUSE * smoothX + (1-SMOOTH_MOUSE) * nx;
-      smoothY = smoothY === null ? ny : SMOOTH_MOUSE * smoothY + (1-SMOOTH_MOUSE) * ny;
-      moveCursor(
-        Math.max(0, Math.min(1, smoothX)),
-        Math.max(0, Math.min(1, smoothY)),
-      );
+    if (!smoothLm) {
+      smoothLm = lm.map(p => [...p]);
     } else {
-      cursorEl.style.display = 'none';
-      smoothX = null; smoothY = null;
+      const a = SMOOTH_LM;
+      smoothLm = smoothLm.map((sp, i) => [
+        a * sp[0] + (1 - a) * lm[i][0],
+        a * sp[1] + (1 - a) * lm[i][1],
+      ]);
     }
 
-    if (gesture === 'fist' && prevGesture !== 'fist') doClick('left');
-    if (gesture === 'right_click' && prevGesture !== 'right_click') doClick('right');
-  }
+    drawFrame(confidences, numLm);
 
-  prevGesture = gesture;
+    const gesture = classifyGesture(smoothLm);
+    labelEl.textContent = active ? (GESTURE_LABEL[gesture] || '') : '';
+
+    if (active) {
+      if (gesture === 'open_hand') {
+        const nx = 1 - smoothLm[INDEX_TIP][0] / video.videoWidth;
+        const ny = smoothLm[INDEX_TIP][1] / video.videoHeight;
+        smoothX = smoothX === null ? nx : SMOOTH_MOUSE * smoothX + (1 - SMOOTH_MOUSE) * nx;
+        smoothY = smoothY === null ? ny : SMOOTH_MOUSE * smoothY + (1 - SMOOTH_MOUSE) * ny;
+        moveCursor(Math.max(0, Math.min(1, smoothX)), Math.max(0, Math.min(1, smoothY)));
+      } else {
+        cursorEl.style.display = 'none';
+        smoothX = null; smoothY = null;
+      }
+      if (gesture === 'fist' && prevGesture !== 'fist') doClick('left');
+      if (gesture === 'right_click' && prevGesture !== 'right_click') doClick('right');
+    }
+    prevGesture = gesture;
+  } finally {
+    inferBusy = false;
+  }
+}
+
+function loop() {
+  runInference();
   requestAnimationFrame(loop);
 }
 
