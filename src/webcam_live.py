@@ -211,6 +211,7 @@ def main() -> None:
     frame_h, frame_w = probe.shape[:2] if ret else (1080, 1920)
     controller = GestureController(frame_w=frame_w, frame_h=frame_h)
 
+    gesture_active = False
     smoothed_landmarks: np.ndarray | None = None
 
     try:
@@ -263,7 +264,8 @@ def main() -> None:
                 smoothed_landmarks = alpha * smoothed_landmarks + (1.0 - alpha) * predicted_landmarks
 
             gesture = classify_gesture(smoothed_landmarks)
-            controller.process(smoothed_landmarks, gesture)
+            if gesture_active:
+                controller.process(smoothed_landmarks, gesture)
 
             preview = draw_prediction(
                 frame_bgr,
@@ -275,24 +277,44 @@ def main() -> None:
             if roi is not None:
                 cv2.rectangle(preview, (x1, y1), (x2, y2), (255, 210, 80), 2)
 
-            label = GESTURE_LABELS.get(gesture, "")
-            if label:
-                cv2.putText(
-                    preview,
-                    label,
-                    (12, preview.shape[0] - 16),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    (0, 220, 120),
-                    2,
-                    cv2.LINE_AA,
-                )
+            if gesture_active:
+                status_text = "AKTIV  [space = av]"
+                status_color = (0, 220, 120)
+                label = GESTURE_LABELS.get(gesture, "")
+                if label:
+                    cv2.putText(
+                        preview,
+                        label,
+                        (12, preview.shape[0] - 16),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0,
+                        (0, 220, 120),
+                        2,
+                        cv2.LINE_AA,
+                    )
+            else:
+                status_text = "PAUSE  [space = start]"
+                status_color = (0, 100, 255)
+
+            cv2.putText(
+                preview,
+                status_text,
+                (12, 60),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                status_color,
+                2,
+                cv2.LINE_AA,
+            )
 
             cv2.imshow("Hand Landmark Live", preview)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
+            elif key == ord(" "):
+                gesture_active = not gesture_active
+                controller.reset()
     finally:
         capture.release()
         if hands_detector is not None:
