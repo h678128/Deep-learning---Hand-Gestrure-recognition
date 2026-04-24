@@ -70,9 +70,9 @@ def classify_gesture(landmarks: np.ndarray) -> str:
     if i_d < 0.65 and m_d < 0.65 and r_d < 0.7 and p_d < 0.7:
         return FIST
 
-    # Fredstegn/høyreklikk: peke+langefinger ute, ring+lillefinger+tommel inne
+    # Fredstegn: peke+langefinger ute, ring+lillefinger inne
     if i_d > 0.8 and m_d > 0.8 and r_d < 0.6 and p_d < 0.6:
-        return RIGHT_CLICK if t_d > 0.6 else "scroll"
+        return "scroll"
 
     return UNKNOWN
 
@@ -127,11 +127,6 @@ class GestureController:
         elif gesture == FIST and self._prev_gesture != FIST:
             if now - self._last_click_time > self.click_cooldown:
                 pyautogui.click()
-                self._last_click_time = now
-
-        elif gesture == RIGHT_CLICK and self._prev_gesture != RIGHT_CLICK:
-            if now - self._last_click_time > self.click_cooldown:
-                pyautogui.rightClick()
                 self._last_click_time = now
 
         self._prev_gesture = gesture

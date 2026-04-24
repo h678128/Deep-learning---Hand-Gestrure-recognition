@@ -212,11 +212,6 @@
     <span class="desc">Venstreklikk</span>
   </div>
   <div class="card">
-    <span class="icon">🤌</span>
-    <span class="title">Tommel + peke + langefinger</span>
-    <span class="desc">Høyreklikk</span>
-  </div>
-  <div class="card">
     <span class="icon">✌️</span>
     <span class="title">Peke + langefinger</span>
     <span class="desc">Scroll opp/ned</span>
@@ -368,9 +363,8 @@ function classifyGesture(lm) {
   // Knyttneve: alle fingertuppper samlet nær palmen
   if (iD < 0.65 && mD < 0.65 && rD < 0.7 && pD < 0.7) return 'fist';
 
-  // Fredstegn/høyreklikk: peke+langefinger ute, ring+lillefinger+tommel inne
-  if (iD > 0.8 && mD > 0.8 && rD < 0.6 && pD < 0.6)
-    return tD > 0.6 ? 'right_click' : 'scroll';
+  // Fredstegn: peke+langefinger ute, ring+lillefinger inne
+  if (iD > 0.8 && mD > 0.8 && rD < 0.6 && pD < 0.6) return 'scroll';
 
   return 'unknown';
 }
@@ -395,11 +389,10 @@ function updateGesture(raw) {
 }
 
 const GESTURE_LABEL = {
-  open_hand:   'Musemodus',
-  fist:        'Venstreklikk',
-  right_click: 'Høyreklikk',
-  scroll:      'Scroll',
-  unknown:     '',
+  open_hand: 'Musemodus',
+  fist:      'Venstreklikk',
+  scroll:    'Scroll',
+  unknown:   '',
 };
 
 // ── Virtuell peker ────────────────────────────────────────────
@@ -517,7 +510,6 @@ async function runInference(now) {
         scrollPrevY = null;
       }
       if (gesture === 'fist' && prevGesture !== 'fist') doClick('left');
-      if (gesture === 'right_click' && prevGesture !== 'right_click') doClick('right');
     }
     prevGesture = gesture;
   } finally {
