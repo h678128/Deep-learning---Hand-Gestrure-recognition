@@ -61,7 +61,7 @@ Deep-learning---Hand-Gestrure-recognition/
 └── README.md              - prosjektbeskrivelse
 ```
 
-Modellen vi bruker til å vise prosjektet er `modell\landmark_heatmap11_best.pt`. Den beste modellen kom på epoke 49 med `3.97` validation pixel error.
+Modellen vi bruker til å vise prosjektet er `modell\landmark_heatmap11_best.pt`. Den beste modellen kom på epoke 38 med `3.97` validation pixel error.
 
 En rolig og enkel bakgrunn fungerer ofte bedre enn en bakgrunn med mye variasjon. Mye stoy, mange objekter eller store variasjoner i bildet kan gjøre modellen mindre stabil. Ansiktet kan også noen ganger lage utfordringer, spesielt hvis det er nært hånden.
 
