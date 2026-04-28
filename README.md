@@ -62,4 +62,25 @@ Deep-learning---Hand-Gestrure-recognition/
 └── README.md              - prosjektbeskrivelse
 ```
 
+Modellen vi bruker til aa vise prosjektet er `modell\landmark_heatmap11_best.pt`. Den beste modellen kom paa epoke 49 med `3.97` validation pixel error.
+
+En rolig og enkel bakgrunn fungerer ofte bedre enn en bakgrunn med mye variasjon. Mye stoy, mange objekter eller store variasjoner i bildet kan gjore modellen mindre stabil. Ansiktet kan ogsaa noen ganger lage utfordringer, spesielt hvis det er naert haanden.
+
+Nyttige kommandoer:
+
+```powershell
+# live-demo
+python src\webcam_live.py --checkpoint modell\landmark_heatmap11_best.pt
+python src\webcam_live.py --checkpoint modell\landmark_heatmap11_best.pt --use-mediapipe
+
+# lokal web-app
+python src\web_app.py --default-checkpoint modell\landmark_heatmap11_best.pt
+
+# evaluer modellen
+python src\evaluate.py --checkpoint modell\landmark_heatmap11_best.pt --index 25
+
+# trening
+python src\train.py --epochs 30 --max-samples 30000 --batch-size 16 --augment --augment-strength moderate --data-source combined --ultralytics-root data --checkpoint modell\landmark_heatmap11_combined_aug30k.pt
+```
+
 
