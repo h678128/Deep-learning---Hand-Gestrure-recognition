@@ -2,7 +2,7 @@
 
 Deep learning engineering Project
 
-Dette prosjektet handler om hand landmark- og gesture-gjenkjenning ved hjelp av deep learning. Hovedmodellen er en heatmap-basert CNN trent i PyTorch, og repoet inneholder baade trening, evaluering og demoer lokalt og i nettleser.
+Dette prosjektet handler om hand landmark- og gesture-gjenkjenning ved hjelp av deep learning. Hovedmodellen er en heatmap-basert CNN, og repoet inneholder både trening, evaluering og demoer lokalt og i nettleser.
 
 Datasettet for prosjektet er for stort vi har derfor lagd klar mapper.
 
@@ -17,12 +17,11 @@ Datasett : https://lmb.informatik.uni-freiburg.de/data/freihand/FreiHAND\_pub\_v
 
 Modellen kan bli brukt her: https://h678128.github.io/Deep-learning---Hand-Gestrure-recognition/
 
-Men det anbefales aa laste ned desktop versjonen for en bedre opplevelse, ettersom denne gir en raskere response.
+Men det anbefales å laste ned desktop versjonen for en bedre opplevelse, ettersom denne gir en raskere response.
 
-Det gaar fra 200-500ms i nettleser til 10-30ms lokalt.
 
 - Python-versjon: prosjektet er testet med Python 3.12
-- `torch`: brukes til aa laste og kjoere modellen
+- `torch`: brukes til å laste og kjøre modellen
 - `opencv-python`: brukes til bildebehandling og live kamera
 - `mediapipe`: brukes som hand-prefilter i noen demoer
 - `flask`: brukes i den lokale web-appen
@@ -47,8 +46,8 @@ Deep-learning---Hand-Gestrure-recognition/
 │   ├── dataset.py         - datasettlasting, heatmaps, cropping og augmentering
 │   ├── model.py           - modellarkitekturene
 │   ├── train.py           - trening og lagring av checkpoints
-│   ├── evaluate.py        - evaluering av modell paa FreiHAND
-│   ├── predict_folder.py  - prediksjon paa en mappe med bilder
+│   ├── evaluate.py        - evaluering av modell på FreiHAND
+│   ├── predict_folder.py  - prediksjon på en mappe med bilder
 │   ├── webcam_live.py     - lokal live-demo med kamera
 │   ├── web_app.py         - lokal Flask web-app
 │   ├── gesture.py         - gesture-logikk basert paa landmarks
@@ -62,9 +61,9 @@ Deep-learning---Hand-Gestrure-recognition/
 └── README.md              - prosjektbeskrivelse
 ```
 
-Modellen vi bruker til aa vise prosjektet er `modell\landmark_heatmap11_best.pt`. Den beste modellen kom paa epoke 49 med `3.97` validation pixel error.
+Modellen vi bruker til å vise prosjektet er `modell\landmark_heatmap11_best.pt`. Den beste modellen kom på epoke 49 med `3.97` validation pixel error.
 
-En rolig og enkel bakgrunn fungerer ofte bedre enn en bakgrunn med mye variasjon. Mye stoy, mange objekter eller store variasjoner i bildet kan gjore modellen mindre stabil. Ansiktet kan ogsaa noen ganger lage utfordringer, spesielt hvis det er naert haanden.
+En rolig og enkel bakgrunn fungerer ofte bedre enn en bakgrunn med mye variasjon. Mye stoy, mange objekter eller store variasjoner i bildet kan gjøre modellen mindre stabil. Ansiktet kan også noen ganger lage utfordringer, spesielt hvis det er nært hånden.
 
 Nyttige kommandoer:
 
