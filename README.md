@@ -27,6 +27,7 @@ Men det anbefales å laste ned desktop versjonen for en bedre opplevelse, etters
 - `flask`: brukes i den lokale web-appen
 - `numpy`: brukes til numeriske operasjoner
 - `matplotlib`: brukes til visualisering og inspeksjon under utvikling
+- `pyautogui`: brukes til musekontroll i desktop-demoen
 - avhengighetene installeres via `requirements.txt`
 
 ```text
