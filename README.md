@@ -1,4 +1,4 @@
-# Deep-learning---Hand-Gestrure-recognition
+# Deep-learning---Hand-gesture-recognition
 
 Deep learning engineering Project
 
