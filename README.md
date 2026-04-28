@@ -2,7 +2,7 @@
 
 Deep learning engineering Project
 
-
+Dette prosjektet handler om hand landmark- og gesture-gjenkjenning ved hjelp av deep learning. Hovedmodellen er en heatmap-basert CNN trent i PyTorch, og repoet inneholder baade trening, evaluering og demoer lokalt og i nettleser.
 
 Datasettet for prosjektet er for stort vi har derfor lagd klar mapper.
 
@@ -20,5 +20,46 @@ Modellen kan bli brukt her: https://h678128.github.io/Deep-learning---Hand-Gestr
 Men det anbefales aa laste ned desktop versjonen for en bedre opplevelse, ettersom denne gir en raskere response.
 
 Det gaar fra 200-500ms i nettleser til 10-30ms lokalt.
+
+- Python-versjon: prosjektet er testet med Python 3.12
+- `torch`: brukes til aa laste og kjoere modellen
+- `opencv-python`: brukes til bildebehandling og live kamera
+- `mediapipe`: brukes som hand-prefilter i noen demoer
+- `flask`: brukes i den lokale web-appen
+- `numpy`: brukes til numeriske operasjoner
+- `matplotlib`: brukes til visualisering og inspeksjon under utvikling
+- avhengighetene installeres via `requirements.txt`
+
+```text
+Deep-learning---Hand-Gestrure-recognition/
+├── data/                  - datasettmapper for FreiHAND og eventuelt annet datagrunnlag
+│   ├── trene/             - FreiHAND train-data
+│   ├── annotations/       - FreiHAND eval / annotasjoner
+│   ├── images/            - Ultralytics-bilder brukt i noen eksperimenter
+│   ├── labels/            - Ultralytics-labels brukt i noen eksperimenter
+│   └── data.yaml          - datasettbeskrivelse for Ultralytics-data
+├── docs/                  - GitHub Pages-versjonen av prosjektet
+│   ├── index.html         - nettleserdemoen
+│   └── model.onnx         - ONNX-modellen brukt av Pages-demoen
+├── modell/                - lagrede modellfiler og checkpoints lokalt
+├── outputs/               - genererte evalueringer, prediksjoner og andre outputs
+├── src/                   - all hovedkode for trening, evaluering og demoer
+│   ├── dataset.py         - datasettlasting, heatmaps, cropping og augmentering
+│   ├── model.py           - modellarkitekturene
+│   ├── train.py           - trening og lagring av checkpoints
+│   ├── evaluate.py        - evaluering av modell paa FreiHAND
+│   ├── predict_folder.py  - prediksjon paa en mappe med bilder
+│   ├── webcam_live.py     - lokal live-demo med kamera
+│   ├── web_app.py         - lokal Flask web-app
+│   ├── gesture.py         - gesture-logikk basert paa landmarks
+│   ├── export_onnx.py     - eksport fra PyTorch til ONNX
+│   ├── inspect_landmarks.py - visuell inspeksjon av landmarks
+│   ├── compare_mappings.py - sammenligner landmark-mappinger
+│   └── test_dataset.py    - enkel testing av datasettoppsett
+├── .gitignore             - ignorerer store datafiler, modeller og outputs
+├── requirements.txt       - Python-avhengigheter
+├── start.bat              - enkel oppstart av desktop-demo paa Windows
+└── README.md              - prosjektbeskrivelse
+```
 
 

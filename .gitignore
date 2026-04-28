@@ -11,3 +11,4 @@ modell/*.json
 
 !data/trene/.gitkeep
 !data/annotations/.gitkeep
+!outputs/.gitkeep
