@@ -85,9 +85,9 @@ python src\train.py --epochs 30 --max-samples 30000 --batch-size 16 --augment --
 
 <img width="940" height="712" alt="image" src="https://github.com/user-attachments/assets/12cf2a2c-4265-4469-a7a9-b2b1fa8981c0" />
 
-<img width="931" height="615" alt="image" src="https://github.com/user-attachments/assets/5e98b576-78d5-408b-95a5-9944f22fc6dc" />
-
 <img width="940" height="702" alt="image" src="https://github.com/user-attachments/assets/2cedc295-f356-404a-8945-eef043c0a048" />
+
+<img width="931" height="615" alt="image" src="https://github.com/user-attachments/assets/5e98b576-78d5-408b-95a5-9944f22fc6dc" />
 
 <img width="940" height="645" alt="image" src="https://github.com/user-attachments/assets/cda08634-6ce2-4d09-8bc1-a64edb59b019" />
 
