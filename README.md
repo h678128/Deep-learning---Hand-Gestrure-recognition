@@ -31,7 +31,7 @@ Men det anbefales å laste ned desktop versjonen for en bedre opplevelse, etters
 - avhengighetene installeres via `requirements.txt`
 
 ```text
-Deep-learning---Hand-Gestrure-recognition/
+Deep-learning---Hand-gesture-recognition/
 ├── data/                  - datasettmapper for FreiHAND og eventuelt annet datagrunnlag
 │   ├── trene/             - FreiHAND train-data
 │   ├── annotations/       - FreiHAND eval / annotasjoner
