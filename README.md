@@ -78,11 +78,9 @@ python src\web_app.py --default-checkpoint modell\landmark_heatmap11_best.pt
 
 # evaluer modellen
 python src\evaluate.py --checkpoint modell\landmark_heatmap11_best.pt --index 25
-
-# trening
-python src\train.py --epochs 30 --max-samples 30000 --batch-size 16 --augment --augment-strength moderate --data-source combined --ultralytics-root data --checkpoint modell\landmark_heatmap11_combined_aug30k.pt
 ```
 
+Bilder fra prosjektet: 
 <img width="520" alt="image" src="https://github.com/user-attachments/assets/12cf2a2c-4265-4469-a7a9-b2b1fa8981c0" />
 
 <img width="520" alt="image" src="https://github.com/user-attachments/assets/2cedc295-f356-404a-8945-eef043c0a048" />
