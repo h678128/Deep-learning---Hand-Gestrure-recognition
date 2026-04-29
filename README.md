@@ -15,7 +15,7 @@ Datasett : https://lmb.informatik.uni-freiburg.de/data/freihand/FreiHAND\_pub\_v
 Datasett : https://lmb.informatik.uni-freiburg.de/data/freihand/FreiHAND\_pub\_v2\_eval.zip - inn i annotations
 
 
-Modellen kan bli brukt her: https://h678128.github.io/Deep-learning---Hand-Gestrure-recognition/
+Modellen kan bli brukt her: https://h678128.github.io/Deep-learning---Hand-gesture--recognition/
 
 Men det anbefales å laste ned desktop versjonen for en bedre opplevelse, ettersom denne gir en raskere response.
 
