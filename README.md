@@ -83,4 +83,8 @@ python src\evaluate.py --checkpoint modell\landmark_heatmap11_best.pt --index 25
 python src\train.py --epochs 30 --max-samples 30000 --batch-size 16 --augment --augment-strength moderate --data-source combined --ultralytics-root data --checkpoint modell\landmark_heatmap11_combined_aug30k.pt
 ```
 
+<img width="940" height="712" alt="image" src="https://github.com/user-attachments/assets/12cf2a2c-4265-4469-a7a9-b2b1fa8981c0" />
+
+
+
 
