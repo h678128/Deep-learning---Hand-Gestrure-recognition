@@ -21,7 +21,7 @@ Men det anbefales å laste ned desktop versjonen for en bedre opplevelse, etters
 1. Trykk på link.
 2. Last ned fil (Windows)
 3. Pakk ut zip
-4. Åpne start.bat
+4. Åpne start
 5. Vent til installasjonen er ferdig
 6. Vindu åpnes - kos deg
 7. Space for å aktivere mus, Q for å avslutte program
