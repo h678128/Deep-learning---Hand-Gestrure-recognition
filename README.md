@@ -80,6 +80,8 @@ python src\web_app.py --default-checkpoint modell\landmark_heatmap11_best.pt
 python src\evaluate.py --checkpoint modell\landmark_heatmap11_best.pt --index 25
 ```
 
+Demovideo: https://youtube.com/shorts/qS3M5z2wxhs
+
 Bilder fra prosjektet. Fra tildig fase til slutt: 
 
 <img width="520" alt="image" src="https://github.com/user-attachments/assets/12cf2a2c-4265-4469-a7a9-b2b1fa8981c0" />
