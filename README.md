@@ -18,6 +18,13 @@ Datasett : https://lmb.informatik.uni-freiburg.de/data/freihand/FreiHAND\_pub\_v
 Modellen kan bli brukt her: https://h678128.github.io/Deep-learning---Hand-gesture--recognition/
 
 Men det anbefales å laste ned desktop versjonen for en bedre opplevelse, ettersom denne gir en raskere response.
+1. Trykk på link.
+2. Last ned fil (Windows)
+3. Pakk ut zip
+4. Åpne start.bat
+5. Vent til installasjonen er ferdig
+6. Vindu åpnes - kos deg
+7. Space for å aktivere mus, Q for å avslutte program
 
 
 - Python-versjon: prosjektet er testet med Python 3.12
