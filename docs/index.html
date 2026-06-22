@@ -195,7 +195,7 @@
 
 <button id="start-btn">Start kamera</button>
 <a id="download-btn"
-   href="https://github.com/h678128/Deep-learning---Hand-gesture--recognition/archive/refs/heads/Master.zip"
+   href="https://github.com/ViktorKnu/Deep-learning---Hand-gesture--recognition/archive/refs/heads/Master.zip"
    target="_blank">
   Last ned desktop-app (Windows)
 </a>
@@ -259,6 +259,13 @@ const statusBar  = document.getElementById('status-bar');
 const startBtn   = document.getElementById('start-btn');
 const toggleBtn  = document.getElementById('toggle-btn');
 const circleTarget = document.getElementById('circle-target');
+
+const githubOwner = window.location.hostname.endsWith('.github.io')
+  ? window.location.hostname.split('.')[0]
+  : 'ViktorKnu';
+const githubRepo = window.location.pathname.split('/').filter(Boolean)[0]
+  || 'Deep-learning---Hand-gesture--recognition';
+downloadBtn.href = `https://github.com/${githubOwner}/${githubRepo}/archive/refs/heads/Master.zip`;
 const offscreenCanvas = document.createElement('canvas');
 offscreenCanvas.width = IMAGE_SIZE;
 offscreenCanvas.height = IMAGE_SIZE;

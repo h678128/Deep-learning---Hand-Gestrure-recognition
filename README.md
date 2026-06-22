@@ -18,7 +18,7 @@ Datasett : https://lmb.informatik.uni-freiburg.de/data/freihand/FreiHAND\_pub\_v
 Link til kaggle: https://www.kaggle.com/code/adriannordbo/hand-gesture/
 
 
-Modellen kan bli brukt her: https://h678128.github.io/Deep-learning---Hand-gesture--recognition/
+Modellen kan bli brukt her: https://ViktorKnu.github.io/Deep-learning---Hand-gesture--recognition/
 
 Men det anbefales å laste ned desktop versjonen for en bedre opplevelse, ettersom denne gir en raskere response.
 1. Trykk på link.
